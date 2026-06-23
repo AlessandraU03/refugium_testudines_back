@@ -1,0 +1,134 @@
+import random
+import math
+import numpy as np
+from cromosoma import Individuo
+
+
+def seleccion_torneo(poblacion, k=3):
+    n         = len(poblacion)
+    n_parejas = max(n // 2, 1)
+    parejas   = []
+    for _ in range(n_parejas):
+        c1 = random.choices(poblacion, k=k)
+        c2 = random.choices(poblacion, k=k)
+        parejas.append((
+            max(c1, key=lambda i: i.fitness),
+            max(c2, key=lambda i: i.fitness),
+        ))
+    return parejas
+
+
+def cruza_por_especie(p1, p2, prob_cruza):
+
+    if random.random() > prob_cruza:
+        return p1.copia(), p2.copia()
+
+    especies = sorted({g.especie for g in p1.genes})
+    h1_genes = []
+    h2_genes = []
+
+    for esp in especies:
+        g1 = [g for g in p1.genes if g.especie == esp]
+        g2 = [g for g in p2.genes if g.especie == esp]
+        for a, b in zip(g1, g2):
+            if random.random() < 0.5:
+                h1_genes.append(a.copia())
+                h2_genes.append(b.copia())
+            else:
+                h1_genes.append(b.copia())
+                h2_genes.append(a.copia())
+
+    return Individuo(h1_genes), Individuo(h2_genes)
+
+
+def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
+   
+    ind   = individuo.copia()
+    genes = ind.genes
+
+    # Preconstruir coordenadas de previos por especie
+    previos_esp = {}
+    if nidos_previos:
+        for n in nidos_previos:
+            e = n['especie']
+            previos_esp.setdefault(e, ([], []))
+            previos_esp[e][0].append(float(n['x']))
+            previos_esp[e][1].append(float(n['y']))
+        previos_esp = {
+            e: (np.array(xs), np.array(ys))
+            for e, (xs, ys) in previos_esp.items()
+        }
+
+    # ── Mutación 1: Profundidad ───────────────────────────────────────────────
+    for gen in genes:
+        if random.random() < prob_mut:
+            e = base[gen.especie]
+            # Perturbación: 0.5 * sigma del CSV → exploración moderada
+            gen.prof = round(float(np.clip(
+                gen.prof + random.gauss(0, e['sigma'] * 0.5),
+                e['prof_min'], e['prof_max']
+            )), 1)
+
+    # ── Mutación 2: Posición ─────────────────────────────────────────────────
+    for idx, gen in enumerate(genes):
+        if random.random() >= prob_mut:
+            continue
+
+        e       = base[gen.especie]
+        sep_min = e['sep_min']
+        lim     = gestor.limites_zona(gen.zona_correcta())
+        if not lim:
+            continue
+
+        # Vecinos nuevos de la misma especie (excluyendo este nido)
+        xs_new = np.array([g.x for j, g in enumerate(genes)
+                           if j != idx and g.especie == gen.especie])
+        ys_new = np.array([g.y for j, g in enumerate(genes)
+                           if j != idx and g.especie == gen.especie])
+
+        # Vecinos previos de la misma especie
+        xs_prev, ys_prev = previos_esp.get(gen.especie, (np.array([]), np.array([])))
+
+        xs_all = np.concatenate([xs_new, xs_prev])
+        ys_all = np.concatenate([ys_new, ys_prev])
+
+        # Usar sep_min exacta del CSV — sin margen de tolerancia
+        def contar_viols(px, py):
+            if len(xs_all) == 0:
+                return 0
+            dist = np.sqrt((px - xs_all)**2 + (py - ys_all)**2)
+            return int((dist < sep_min - 0.05).sum())
+
+        viols_actual = contar_viols(gen.x, gen.y)
+        if viols_actual == 0:
+            continue   # ya respeta sep_min, no muta posición
+
+        mejor_x    = gen.x
+        mejor_y    = gen.y
+        mejor_viols = viols_actual
+
+        for _ in range(60):
+            cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
+            cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
+            v  = contar_viols(cx, cy)
+            if v < mejor_viols:
+                mejor_x     = cx
+                mejor_y     = cy
+                mejor_viols = v
+                if v == 0:
+                    break
+
+        gen.x = mejor_x
+        gen.y = mejor_y
+
+    return ind
+
+
+def poda_elitismo(poblacion, descendencia, tam_pob, n_elite=2):
+    """Selección μ+λ: conserva los n_elite mejores y completa aleatoriamente."""
+    todos = sorted(poblacion + descendencia,
+                   key=lambda i: i.fitness, reverse=True)
+    elite = todos[:n_elite]
+    resto = todos[n_elite:]
+    random.shuffle(resto)
+    return elite + resto[:tam_pob - n_elite]

@@ -1,0 +1,4 @@
+especie,tasa_eclosion_promedio,tasa_eclosion_minima,tasa_eclosion_maxima
+golfina,0.75,0.60,0.90
+prieta,0.70,0.55,0.85
+laud,0.52,0.40,0.70

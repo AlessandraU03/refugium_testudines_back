@@ -1,0 +1,10 @@
+campo,valor
+largo_cm,4000
+ancho_cm,3500
+area_m2,1400
+capacidad_maxima_nidos_simultaneos,400
+capacidad_maxima_nidos_temporada,1500
+profundidad_promedio_cm,45
+humedad_optima_porcentaje,30
+temperatura_optima_celsius,29
+material,arena_natural

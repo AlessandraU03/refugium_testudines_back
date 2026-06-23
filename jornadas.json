@@ -1,0 +1,1697 @@
+{
+  "temporada": "2026",
+  "jornadas": [
+    {
+      "fecha": "2026-04-10",
+      "entradas": {
+        "golfina": 70,
+        "prieta": 25,
+        "laud": 5
+      },
+      "params": {
+        "tam_pob": 50,
+        "n_gen": 100,
+        "prob_cruza": 0.85,
+        "prob_mut": 0.15
+      },
+      "zonas": {
+        "zona_golfina": {
+          "xmin": 0.0,
+          "xmax": 2800.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "golfina"
+        },
+        "zona_prieta": {
+          "xmin": 2800.0,
+          "xmax": 3800.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "prieta"
+        },
+        "zona_laud": {
+          "xmin": 3800.0,
+          "xmax": 4000.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "laud"
+        }
+      },
+      "resultado": {
+        "fitness": 0.9541,
+        "v1": 0.8817,
+        "v2": 0,
+        "v3": 0.0022,
+        "v4": 0.0255
+      },
+      "nidos": [
+        {
+          "id": 0,
+          "especie": "golfina",
+          "x": 1249.5,
+          "y": 1049.1,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 1,
+          "especie": "golfina",
+          "x": 2749.7,
+          "y": 49.9,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 2,
+          "especie": "golfina",
+          "x": 1150.4,
+          "y": 50.9,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 3,
+          "especie": "golfina",
+          "x": 1951.5,
+          "y": 1649.3,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 4,
+          "especie": "golfina",
+          "x": 849.7,
+          "y": 448.9,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 5,
+          "especie": "golfina",
+          "x": 2750.7,
+          "y": 248.2,
+          "prof": 44.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 6,
+          "especie": "golfina",
+          "x": 1151.4,
+          "y": 1849.5,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 7,
+          "especie": "golfina",
+          "x": 150.1,
+          "y": 950.2,
+          "prof": 45.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 8,
+          "especie": "golfina",
+          "x": 1449.1,
+          "y": 1148.7,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 9,
+          "especie": "golfina",
+          "x": 1649.3,
+          "y": 550.1,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 10,
+          "especie": "golfina",
+          "x": 1551,
+          "y": 950,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 11,
+          "especie": "golfina",
+          "x": 1350.1,
+          "y": 3449.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 12,
+          "especie": "golfina",
+          "x": 2550.9,
+          "y": 1249.3,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 13,
+          "especie": "golfina",
+          "x": 1050.7,
+          "y": 2850.3,
+          "prof": 45.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 14,
+          "especie": "golfina",
+          "x": 1151.7,
+          "y": 3048.6,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 15,
+          "especie": "golfina",
+          "x": 2249.6,
+          "y": 1949,
+          "prof": 45.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 16,
+          "especie": "golfina",
+          "x": 2050.5,
+          "y": 2449.7,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 17,
+          "especie": "golfina",
+          "x": 450.3,
+          "y": 1949.2,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 18,
+          "especie": "golfina",
+          "x": 1949.5,
+          "y": 249.7,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 19,
+          "especie": "golfina",
+          "x": 2649.5,
+          "y": 1450.9,
+          "prof": 44.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 20,
+          "especie": "golfina",
+          "x": 2150.4,
+          "y": 2249.9,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 21,
+          "especie": "golfina",
+          "x": 149,
+          "y": 2250.7,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 22,
+          "especie": "golfina",
+          "x": 1849.2,
+          "y": 1049.5,
+          "prof": 45.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 23,
+          "especie": "golfina",
+          "x": 2751,
+          "y": 151.7,
+          "prof": 45.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 24,
+          "especie": "golfina",
+          "x": 1448.6,
+          "y": 1549,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 25,
+          "especie": "golfina",
+          "x": 1349.6,
+          "y": 2851.6,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 26,
+          "especie": "golfina",
+          "x": 1949.7,
+          "y": 3149.3,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 27,
+          "especie": "golfina",
+          "x": 2250.7,
+          "y": 1848.5,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 28,
+          "especie": "golfina",
+          "x": 1651.4,
+          "y": 3351.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 29,
+          "especie": "golfina",
+          "x": 49,
+          "y": 50.6,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 30,
+          "especie": "golfina",
+          "x": 1850.5,
+          "y": 2949.1,
+          "prof": 45.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 31,
+          "especie": "golfina",
+          "x": 2347.8,
+          "y": 950.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 32,
+          "especie": "golfina",
+          "x": 949.3,
+          "y": 649.2,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 33,
+          "especie": "golfina",
+          "x": 1951.1,
+          "y": 549.7,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 34,
+          "especie": "golfina",
+          "x": 148.8,
+          "y": 3451.8,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 35,
+          "especie": "golfina",
+          "x": 2349.3,
+          "y": 251.2,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 36,
+          "especie": "golfina",
+          "x": 1450.3,
+          "y": 1849.7,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 37,
+          "especie": "golfina",
+          "x": 750,
+          "y": 3049.9,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 38,
+          "especie": "golfina",
+          "x": 2549.7,
+          "y": 748.6,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 39,
+          "especie": "golfina",
+          "x": 251.1,
+          "y": 847.8,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 40,
+          "especie": "golfina",
+          "x": 1551,
+          "y": 2248.8,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 41,
+          "especie": "golfina",
+          "x": 1548.9,
+          "y": 1751.9,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 42,
+          "especie": "golfina",
+          "x": 2548.7,
+          "y": 649,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 43,
+          "especie": "golfina",
+          "x": 1949.9,
+          "y": 747.7,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 44,
+          "especie": "golfina",
+          "x": 649.9,
+          "y": 3148.5,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 45,
+          "especie": "golfina",
+          "x": 2549.5,
+          "y": 1850,
+          "prof": 45.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 46,
+          "especie": "golfina",
+          "x": 2651.3,
+          "y": 949.2,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 47,
+          "especie": "golfina",
+          "x": 1050,
+          "y": 3048.6,
+          "prof": 45.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 48,
+          "especie": "golfina",
+          "x": 2351.2,
+          "y": 1949.5,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 49,
+          "especie": "golfina",
+          "x": 1550.8,
+          "y": 850.6,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 50,
+          "especie": "golfina",
+          "x": 2350.5,
+          "y": 852,
+          "prof": 45.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 51,
+          "especie": "golfina",
+          "x": 2048.7,
+          "y": 1950.2,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 52,
+          "especie": "golfina",
+          "x": 551.1,
+          "y": 1549.3,
+          "prof": 44.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 53,
+          "especie": "golfina",
+          "x": 1049.8,
+          "y": 1449,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 54,
+          "especie": "golfina",
+          "x": 2650.9,
+          "y": 1050.5,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 55,
+          "especie": "golfina",
+          "x": 1751.5,
+          "y": 850.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 56,
+          "especie": "golfina",
+          "x": 1251.3,
+          "y": 1650.5,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 57,
+          "especie": "golfina",
+          "x": 851.3,
+          "y": 649,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 58,
+          "especie": "golfina",
+          "x": 451.1,
+          "y": 3148.8,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 59,
+          "especie": "golfina",
+          "x": 1949.4,
+          "y": 1151.7,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 60,
+          "especie": "golfina",
+          "x": 2449.2,
+          "y": 551,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 61,
+          "especie": "golfina",
+          "x": 449.9,
+          "y": 1449.3,
+          "prof": 44.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 62,
+          "especie": "golfina",
+          "x": 1748.3,
+          "y": 1550.9,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 63,
+          "especie": "golfina",
+          "x": 850.3,
+          "y": 949.6,
+          "prof": 45.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 64,
+          "especie": "golfina",
+          "x": 1951,
+          "y": 1848.9,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 65,
+          "especie": "golfina",
+          "x": 849.1,
+          "y": 1750.1,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 66,
+          "especie": "golfina",
+          "x": 351,
+          "y": 650.5,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 67,
+          "especie": "golfina",
+          "x": 1748.3,
+          "y": 1449.7,
+          "prof": 44.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 68,
+          "especie": "golfina",
+          "x": 2350.7,
+          "y": 1250.2,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 69,
+          "especie": "golfina",
+          "x": 348.7,
+          "y": 50.9,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 95,
+          "especie": "laud",
+          "x": 3901,
+          "y": 2205.7,
+          "prof": 69.9,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 96,
+          "especie": "laud",
+          "x": 3898.7,
+          "y": 2512.6,
+          "prof": 71.1,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 97,
+          "especie": "laud",
+          "x": 3899.8,
+          "y": 1901.4,
+          "prof": 69.9,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 98,
+          "especie": "laud",
+          "x": 3900.7,
+          "y": 1144.5,
+          "prof": 70,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 99,
+          "especie": "laud",
+          "x": 3901.5,
+          "y": 379.3,
+          "prof": 69.8,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 70,
+          "especie": "prieta",
+          "x": 3114.2,
+          "y": 1386.2,
+          "prof": 60.3,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 71,
+          "especie": "prieta",
+          "x": 2864.2,
+          "y": 1146.5,
+          "prof": 60.1,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 72,
+          "especie": "prieta",
+          "x": 3364.1,
+          "y": 1991.2,
+          "prof": 60.3,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 73,
+          "especie": "prieta",
+          "x": 2985.2,
+          "y": 2596.3,
+          "prof": 59.1,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 74,
+          "especie": "prieta",
+          "x": 2987.2,
+          "y": 784.1,
+          "prof": 59.4,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 75,
+          "especie": "prieta",
+          "x": 2861,
+          "y": 1026.6,
+          "prof": 60.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 76,
+          "especie": "prieta",
+          "x": 2862.1,
+          "y": 2836.4,
+          "prof": 59.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 77,
+          "especie": "prieta",
+          "x": 3738.2,
+          "y": 3439,
+          "prof": 60.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 78,
+          "especie": "prieta",
+          "x": 3488,
+          "y": 1146.8,
+          "prof": 58.9,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 79,
+          "especie": "prieta",
+          "x": 2988.5,
+          "y": 1749.3,
+          "prof": 59.9,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 80,
+          "especie": "prieta",
+          "x": 3614.7,
+          "y": 3438.5,
+          "prof": 60.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 81,
+          "especie": "prieta",
+          "x": 3737.2,
+          "y": 1630.6,
+          "prof": 59.1,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 82,
+          "especie": "prieta",
+          "x": 3611.6,
+          "y": 905.9,
+          "prof": 61,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 83,
+          "especie": "prieta",
+          "x": 3235.6,
+          "y": 1509.1,
+          "prof": 60,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 84,
+          "especie": "prieta",
+          "x": 3487.7,
+          "y": 60.7,
+          "prof": 61.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 85,
+          "especie": "prieta",
+          "x": 3488.1,
+          "y": 1386.8,
+          "prof": 59.4,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 86,
+          "especie": "prieta",
+          "x": 3487.2,
+          "y": 1750.3,
+          "prof": 60.1,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 87,
+          "especie": "prieta",
+          "x": 2860.8,
+          "y": 3322,
+          "prof": 59.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 88,
+          "especie": "prieta",
+          "x": 3738.6,
+          "y": 1872.7,
+          "prof": 59.4,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 89,
+          "especie": "prieta",
+          "x": 3736.4,
+          "y": 2111.9,
+          "prof": 60.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 90,
+          "especie": "prieta",
+          "x": 3485.9,
+          "y": 2232.4,
+          "prof": 60,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 91,
+          "especie": "prieta",
+          "x": 3236.4,
+          "y": 1748.3,
+          "prof": 60.4,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 92,
+          "especie": "prieta",
+          "x": 2861,
+          "y": 1871.5,
+          "prof": 59.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 93,
+          "especie": "prieta",
+          "x": 3487.5,
+          "y": 2111,
+          "prof": 58.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 94,
+          "especie": "prieta",
+          "x": 3238.3,
+          "y": 2717.5,
+          "prof": 59.9,
+          "zona": "zona_prieta"
+        }
+      ]
+    },
+    {
+      "fecha": "2026-06-23",
+      "entradas": {
+        "golfina": 70,
+        "prieta": 25,
+        "laud": 5
+      },
+      "params": {
+        "tam_pob": 50,
+        "n_gen": 100,
+        "prob_cruza": 0.85,
+        "prob_mut": 0.15
+      },
+      "zonas": {
+        "zona_golfina": {
+          "xmin": 0.0,
+          "xmax": 2800.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "golfina"
+        },
+        "zona_prieta": {
+          "xmin": 2800.0,
+          "xmax": 3800.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "prieta"
+        },
+        "zona_laud": {
+          "xmin": 3800.0,
+          "xmax": 4000.0,
+          "ymin": 0.0,
+          "ymax": 3500.0,
+          "especie": "laud"
+        }
+      },
+      "resultado": {
+        "fitness": 0.955,
+        "v1": 0.882,
+        "v2": 0,
+        "v3": 0.0018,
+        "v4": 0.0249
+      },
+      "nidos": [
+        {
+          "id": 0,
+          "especie": "golfina",
+          "x": 2249,
+          "y": 2849.8,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 1,
+          "especie": "golfina",
+          "x": 1049.1,
+          "y": 349.4,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 2,
+          "especie": "golfina",
+          "x": 1250.2,
+          "y": 2748.8,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 3,
+          "especie": "golfina",
+          "x": 550.3,
+          "y": 1351.7,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 4,
+          "especie": "golfina",
+          "x": 1950.2,
+          "y": 750.3,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 5,
+          "especie": "golfina",
+          "x": 651,
+          "y": 1247.8,
+          "prof": 45.4,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 6,
+          "especie": "golfina",
+          "x": 648.8,
+          "y": 51.1,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 7,
+          "especie": "golfina",
+          "x": 1250.6,
+          "y": 2250.2,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 8,
+          "especie": "golfina",
+          "x": 349.9,
+          "y": 849.7,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 9,
+          "especie": "golfina",
+          "x": 2550.5,
+          "y": 349.8,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 10,
+          "especie": "golfina",
+          "x": 1050.7,
+          "y": 950.1,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 11,
+          "especie": "golfina",
+          "x": 651.3,
+          "y": 2151,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 12,
+          "especie": "golfina",
+          "x": 248.2,
+          "y": 1352.2,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 13,
+          "especie": "golfina",
+          "x": 2549.7,
+          "y": 2850.2,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 14,
+          "especie": "golfina",
+          "x": 2748.7,
+          "y": 650.4,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 15,
+          "especie": "golfina",
+          "x": 1749.2,
+          "y": 949.8,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 16,
+          "especie": "golfina",
+          "x": 1348.4,
+          "y": 249.6,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 17,
+          "especie": "golfina",
+          "x": 848.4,
+          "y": 849.7,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 18,
+          "especie": "golfina",
+          "x": 551.3,
+          "y": 149.2,
+          "prof": 45.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 19,
+          "especie": "golfina",
+          "x": 151.3,
+          "y": 2251.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 20,
+          "especie": "golfina",
+          "x": 1049.8,
+          "y": 1250.5,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 21,
+          "especie": "golfina",
+          "x": 2450.5,
+          "y": 2451.2,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 22,
+          "especie": "golfina",
+          "x": 2350.2,
+          "y": 3450.6,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 23,
+          "especie": "golfina",
+          "x": 351.1,
+          "y": 251.6,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 24,
+          "especie": "golfina",
+          "x": 449.9,
+          "y": 2651.1,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 25,
+          "especie": "golfina",
+          "x": 2249.3,
+          "y": 250.6,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 26,
+          "especie": "golfina",
+          "x": 2048.8,
+          "y": 3152.2,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 27,
+          "especie": "golfina",
+          "x": 49.4,
+          "y": 1650.4,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 28,
+          "especie": "golfina",
+          "x": 1548.6,
+          "y": 1050.2,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 29,
+          "especie": "golfina",
+          "x": 850.3,
+          "y": 1150.3,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 30,
+          "especie": "golfina",
+          "x": 1648.3,
+          "y": 1150.2,
+          "prof": 45.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 31,
+          "especie": "golfina",
+          "x": 1350.4,
+          "y": 949.8,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 32,
+          "especie": "golfina",
+          "x": 1950.9,
+          "y": 1349.6,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 33,
+          "especie": "golfina",
+          "x": 150.4,
+          "y": 3049.8,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 34,
+          "especie": "golfina",
+          "x": 1149.5,
+          "y": 1250.8,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 35,
+          "especie": "golfina",
+          "x": 1250.5,
+          "y": 1950.1,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 36,
+          "especie": "golfina",
+          "x": 2649.6,
+          "y": 651.5,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 37,
+          "especie": "golfina",
+          "x": 1750,
+          "y": 2348.8,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 38,
+          "especie": "golfina",
+          "x": 2748.5,
+          "y": 450.4,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 39,
+          "especie": "golfina",
+          "x": 1349.9,
+          "y": 849.7,
+          "prof": 45.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 40,
+          "especie": "golfina",
+          "x": 1650.4,
+          "y": 2049.8,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 41,
+          "especie": "golfina",
+          "x": 851.4,
+          "y": 3150,
+          "prof": 44.9,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 42,
+          "especie": "golfina",
+          "x": 1449.7,
+          "y": 3049.9,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 43,
+          "especie": "golfina",
+          "x": 2249,
+          "y": 649.1,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 44,
+          "especie": "golfina",
+          "x": 51.9,
+          "y": 1350.8,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 45,
+          "especie": "golfina",
+          "x": 2450.9,
+          "y": 2750.4,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 46,
+          "especie": "golfina",
+          "x": 1250,
+          "y": 2448.2,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 47,
+          "especie": "golfina",
+          "x": 2451.4,
+          "y": 448.5,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 48,
+          "especie": "golfina",
+          "x": 952,
+          "y": 449.9,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 49,
+          "especie": "golfina",
+          "x": 951.6,
+          "y": 1850.8,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 50,
+          "especie": "golfina",
+          "x": 2049.5,
+          "y": 1450.1,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 51,
+          "especie": "golfina",
+          "x": 1550,
+          "y": 349,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 52,
+          "especie": "golfina",
+          "x": 1950.2,
+          "y": 849.4,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 53,
+          "especie": "golfina",
+          "x": 1049.5,
+          "y": 2250.5,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 54,
+          "especie": "golfina",
+          "x": 2150.5,
+          "y": 749,
+          "prof": 45.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 55,
+          "especie": "golfina",
+          "x": 949.7,
+          "y": 3450.6,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 56,
+          "especie": "golfina",
+          "x": 950.7,
+          "y": 950.8,
+          "prof": 44.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 57,
+          "especie": "golfina",
+          "x": 1348.9,
+          "y": 1251,
+          "prof": 45.8,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 58,
+          "especie": "golfina",
+          "x": 1250.1,
+          "y": 2549.5,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 59,
+          "especie": "golfina",
+          "x": 247.4,
+          "y": 3050.7,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 60,
+          "especie": "golfina",
+          "x": 2350.1,
+          "y": 2450,
+          "prof": 45,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 61,
+          "especie": "golfina",
+          "x": 650.9,
+          "y": 449,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 62,
+          "especie": "golfina",
+          "x": 1850.9,
+          "y": 648,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 63,
+          "especie": "golfina",
+          "x": 849.7,
+          "y": 650.8,
+          "prof": 45.1,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 64,
+          "especie": "golfina",
+          "x": 2751,
+          "y": 2350,
+          "prof": 44.6,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 65,
+          "especie": "golfina",
+          "x": 2249.7,
+          "y": 549.3,
+          "prof": 44.7,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 66,
+          "especie": "golfina",
+          "x": 1649.2,
+          "y": 1549.3,
+          "prof": 45.2,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 67,
+          "especie": "golfina",
+          "x": 549.8,
+          "y": 1651.6,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 68,
+          "especie": "golfina",
+          "x": 449.5,
+          "y": 2248.1,
+          "prof": 44.5,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 69,
+          "especie": "golfina",
+          "x": 250.5,
+          "y": 649.5,
+          "prof": 44.3,
+          "zona": "zona_golfina"
+        },
+        {
+          "id": 95,
+          "especie": "laud",
+          "x": 3901.7,
+          "y": 838.1,
+          "prof": 69.6,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 96,
+          "especie": "laud",
+          "x": 3899.9,
+          "y": 2353.9,
+          "prof": 69.5,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 97,
+          "especie": "laud",
+          "x": 3902,
+          "y": 1751.4,
+          "prof": 70.4,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 98,
+          "especie": "laud",
+          "x": 3900,
+          "y": 1142.2,
+          "prof": 70.1,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 99,
+          "especie": "laud",
+          "x": 3899,
+          "y": 1446.9,
+          "prof": 70.2,
+          "zona": "zona_laud"
+        },
+        {
+          "id": 70,
+          "especie": "prieta",
+          "x": 2860.1,
+          "y": 2712.1,
+          "prof": 59.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 71,
+          "especie": "prieta",
+          "x": 3487.1,
+          "y": 1629.9,
+          "prof": 59.5,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 72,
+          "especie": "prieta",
+          "x": 3236.5,
+          "y": 1630.7,
+          "prof": 60.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 73,
+          "especie": "prieta",
+          "x": 3736.8,
+          "y": 1386.5,
+          "prof": 60.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 74,
+          "especie": "prieta",
+          "x": 3612.8,
+          "y": 1630.1,
+          "prof": 59.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 75,
+          "especie": "prieta",
+          "x": 2862.4,
+          "y": 2956.5,
+          "prof": 60.1,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 76,
+          "especie": "prieta",
+          "x": 3736.4,
+          "y": 3318.9,
+          "prof": 60.3,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 77,
+          "especie": "prieta",
+          "x": 3239,
+          "y": 2837,
+          "prof": 59.5,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 78,
+          "especie": "prieta",
+          "x": 3488.1,
+          "y": 2353.1,
+          "prof": 61,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 79,
+          "especie": "prieta",
+          "x": 2985.1,
+          "y": 907.6,
+          "prof": 59.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 80,
+          "especie": "prieta",
+          "x": 3613.8,
+          "y": 2837.8,
+          "prof": 59.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 81,
+          "especie": "prieta",
+          "x": 2861.5,
+          "y": 664.8,
+          "prof": 59.5,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 82,
+          "especie": "prieta",
+          "x": 3111.7,
+          "y": 1147.1,
+          "prof": 59,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 83,
+          "especie": "prieta",
+          "x": 2987.3,
+          "y": 2957.4,
+          "prof": 58.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 84,
+          "especie": "prieta",
+          "x": 3362.5,
+          "y": 786.7,
+          "prof": 59.8,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 85,
+          "especie": "prieta",
+          "x": 2861.4,
+          "y": 2113.2,
+          "prof": 59.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 86,
+          "especie": "prieta",
+          "x": 3735.3,
+          "y": 2475.1,
+          "prof": 61.5,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 87,
+          "especie": "prieta",
+          "x": 3238.9,
+          "y": 3199.9,
+          "prof": 59.4,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 88,
+          "especie": "prieta",
+          "x": 3612.8,
+          "y": 783.6,
+          "prof": 60.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 89,
+          "especie": "prieta",
+          "x": 3110.9,
+          "y": 2354.3,
+          "prof": 59.5,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 90,
+          "especie": "prieta",
+          "x": 3365.7,
+          "y": 2475.8,
+          "prof": 58.6,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 91,
+          "especie": "prieta",
+          "x": 3612.1,
+          "y": 1868.2,
+          "prof": 59.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 92,
+          "especie": "prieta",
+          "x": 3361.6,
+          "y": 3439,
+          "prof": 59.7,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 93,
+          "especie": "prieta",
+          "x": 3360.5,
+          "y": 1991.9,
+          "prof": 59.2,
+          "zona": "zona_prieta"
+        },
+        {
+          "id": 94,
+          "especie": "prieta",
+          "x": 3613.3,
+          "y": 2594.1,
+          "prof": 60,
+          "zona": "zona_prieta"
+        }
+      ]
+    }
+  ]
+}
