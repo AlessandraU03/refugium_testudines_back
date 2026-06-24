@@ -36,7 +36,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
     print(f"\n{'='*60}")
     print(f"  AG: {len(nidos_entrada)} nidos nuevos | "
           f"{len(previos)} previos | pop={_TAM_POB} | gen={_N_GEN}")
-    print(f"  Fitness inicial → mejor:{mejor_global.fitness:.4f} prom:{prom_ini:.4f}")
+    print(f"  Fitness inicial -> mejor:{mejor_global.fitness:.4f} prom:{prom_ini:.4f}")
     print(f"  V1={mejor_global.v1:.3f} V2={mejor_global.v2:.3f} "
           f"V3={mejor_global.v3:.4f} V4={mejor_global.v4:.4f}")
     print(f"{'='*60}")
@@ -74,7 +74,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
 
     fits_fin = [i.fitness for i in poblacion]
     prom_fin = sum(fits_fin) / len(fits_fin)
-    print(f"\n  ✓ Finalizado | Mejor={mejor_global.fitness:.4f} Prom={prom_fin:.4f}")
+    print(f"\n  [OK] Finalizado | Mejor={mejor_global.fitness:.4f} Prom={prom_fin:.4f}")
     print(f"  V1={mejor_global.v1:.3f} V2={mejor_global.v2:.3f} "
           f"V3={mejor_global.v3:.4f} V4={mejor_global.v4:.4f}")
 
