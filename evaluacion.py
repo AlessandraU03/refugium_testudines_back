@@ -85,9 +85,9 @@ def calcular_v1(individuo, base, nidos_previos=None):
         if n_all > 1:
             dx   = xs_all[:, None] - xs_all[None, :]
             dy   = ys_all[:, None] - ys_all[None, :]
-            dist = np.sqrt(dx**2 + dy**2)
-            np.fill_diagonal(dist, np.inf)
-            ok     = (dist >= e['sep_min']).sum(axis=1)
+            dist_sq = dx**2 + dy**2
+            np.fill_diagonal(dist_sq, np.inf)
+            ok     = (dist_sq >= e['sep_min']**2).sum(axis=1)
             fs_all = ok / (n_all - 1)
         else:
             fs_all = np.ones(n_all)
@@ -142,10 +142,10 @@ def calcular_v3(individuo, base, nidos_previos=None):
         if n_new > 1:
             dx   = xs_n[:, None] - xs_n[None, :]
             dy   = ys_n[:, None] - ys_n[None, :]
-            dist = np.sqrt(dx**2 + dy**2)
+            dist_sq = dx**2 + dy**2
             mask = np.triu(np.ones((n_new, n_new), bool), 1)
             pares_total += int(mask.sum())
-            pares_malos += int((dist[mask] < sep).sum())
+            pares_malos += int((dist_sq[mask] < sep**2).sum())
 
         # (b) nuevo-vs-previo
         p_data = por_esp_prev.get(esp)
@@ -155,9 +155,9 @@ def calcular_v3(individuo, base, nidos_previos=None):
             n_p  = len(xs_p)
             dx   = xs_n[:, None] - xs_p[None, :]
             dy   = ys_n[:, None] - ys_p[None, :]
-            dist = np.sqrt(dx**2 + dy**2)
+            dist_sq = dx**2 + dy**2
             pares_total += n_new * n_p
-            pares_malos += int((dist < sep).sum())
+            pares_malos += int((dist_sq < sep**2).sum())
 
     return round(pares_malos / pares_total, 6) if pares_total > 0 else 0.0
 

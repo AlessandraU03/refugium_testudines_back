@@ -113,10 +113,10 @@ def ejecutar():
         if n_all > 1:
             dx   = xs_n[:, None] - xs_all[None, :]
             dy   = ys_n[:, None] - ys_all[None, :]
-            dist = np.sqrt(dx**2 + dy**2)
+            dist_sq = dx**2 + dy**2
             for li in range(n_e):
-                dist[li, li] = np.inf
-            ok = (dist >= e['sep_min']).sum(axis=1)
+                dist_sq[li, li] = np.inf
+            ok = (dist_sq >= e['sep_min']**2).sum(axis=1)
             fs = ok / (n_all - 1)
         else:
             fs = np.ones(n_e)

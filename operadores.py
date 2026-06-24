@@ -92,34 +92,30 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         xs_all = np.concatenate([xs_new, xs_prev])
         ys_all = np.concatenate([ys_new, ys_prev])
 
-        # Usar sep_min exacta del CSV — sin margen de tolerancia
-        def contar_viols(px, py):
-            if len(xs_all) == 0:
-                return 0
-            dist = np.sqrt((px - xs_all)**2 + (py - ys_all)**2)
-            return int((dist < sep_min - 0.05).sum())
+        if len(xs_all) == 0:
+            continue
 
-        viols_actual = contar_viols(gen.x, gen.y)
+        sep_min_sq = (sep_min - 0.05) ** 2
+        dist_sq_actual = (gen.x - xs_all)**2 + (gen.y - ys_all)**2
+        viols_actual = int((dist_sq_actual < sep_min_sq).sum())
+
         if viols_actual == 0:
             continue   # ya respeta sep_min, no muta posición
 
-        mejor_x    = gen.x
-        mejor_y    = gen.y
-        mejor_viols = viols_actual
+        cxs = np.round(np.random.uniform(lim['xmin'], lim['xmax'], size=60), 1)
+        cys = np.round(np.random.uniform(lim['ymin'], lim['ymax'], size=60), 1)
 
-        for _ in range(60):
-            cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
-            cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
-            v  = contar_viols(cx, cy)
-            if v < mejor_viols:
-                mejor_x     = cx
-                mejor_y     = cy
-                mejor_viols = v
-                if v == 0:
-                    break
+        dx = cxs[:, None] - xs_all[None, :]
+        dy = cys[:, None] - ys_all[None, :]
+        dist_sq_cand = dx**2 + dy**2
 
-        gen.x = mejor_x
-        gen.y = mejor_y
+        viols_cand = (dist_sq_cand < sep_min_sq).sum(axis=1)
+        best_idx = np.argmin(viols_cand)
+        mejor_viols = viols_cand[best_idx]
+
+        if mejor_viols < viols_actual:
+            gen.x = float(cxs[best_idx])
+            gen.y = float(cys[best_idx])
 
     return ind
 
