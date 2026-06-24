@@ -216,5 +216,21 @@ def nueva_temporada():
     return jsonify({'ok': True})
 
 
+import traceback
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    tb = traceback.format_exc()
+    print("=== GLOBAL EXCEPTION CAUGHT ===")
+    print(tb)
+    return jsonify({
+        "error": str(e),
+        "traceback": tb
+    }), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
