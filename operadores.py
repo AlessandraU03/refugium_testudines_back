@@ -46,18 +46,30 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
     ind   = individuo.copia()
     genes = ind.genes
 
+    # Prebuild numpy arrays for the genes of this individual to avoid python loops
+    all_xs = np.array([g.x for g in genes])
+    all_ys = np.array([g.y for g in genes])
+    all_esps = np.array([g.especie for g in genes])
+
     # Preconstruir coordenadas de previos por especie
     previos_esp = {}
     if nidos_previos:
-        for n in nidos_previos:
-            e = n['especie']
-            previos_esp.setdefault(e, ([], []))
-            previos_esp[e][0].append(float(n['x']))
-            previos_esp[e][1].append(float(n['y']))
-        previos_esp = {
-            e: (np.array(xs), np.array(ys))
-            for e, (xs, ys) in previos_esp.items()
-        }
+        if isinstance(nidos_previos, dict) and "__cache__" in nidos_previos:
+            previos_esp = {
+                e: (p_data[0], p_data[1])
+                for e, p_data in nidos_previos.items()
+                if e != "__cache__"
+            }
+        else:
+            for n in nidos_previos:
+                e = n['especie']
+                previos_esp.setdefault(e, ([], []))
+                previos_esp[e][0].append(float(n['x']))
+                previos_esp[e][1].append(float(n['y']))
+            previos_esp = {
+                e: (np.array(xs), np.array(ys))
+                for e, (xs, ys) in previos_esp.items()
+            }
 
     # ── Mutación 1: Profundidad ───────────────────────────────────────────────
     for gen in genes:
@@ -80,11 +92,11 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         if not lim:
             continue
 
-        # Vecinos nuevos de la misma especie (excluyendo este nido)
-        xs_new = np.array([g.x for j, g in enumerate(genes)
-                           if j != idx and g.especie == gen.especie])
-        ys_new = np.array([g.y for j, g in enumerate(genes)
-                           if j != idx and g.especie == gen.especie])
+        # Vecinos nuevos de la misma especie (excluyendo este nido) usando indexación NumPy
+        mask = (all_esps == gen.especie)
+        mask[idx] = False
+        xs_new = all_xs[mask]
+        ys_new = all_ys[mask]
 
         # Vecinos previos de la misma especie
         xs_prev, ys_prev = previos_esp.get(gen.especie, (np.array([]), np.array([])))
@@ -114,8 +126,12 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         mejor_viols = viols_cand[best_idx]
 
         if mejor_viols < viols_actual:
-            gen.x = float(cxs[best_idx])
-            gen.y = float(cys[best_idx])
+            new_x = float(cxs[best_idx])
+            new_y = float(cys[best_idx])
+            gen.x = new_x
+            gen.y = new_y
+            all_xs[idx] = new_x
+            all_ys[idx] = new_y
 
     return ind
 

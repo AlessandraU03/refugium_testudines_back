@@ -36,12 +36,17 @@ def calcular_v1(individuo, base, nidos_previos=None):
     for i, g in enumerate(genes_nuevos):
         por_esp_nuevo.setdefault(g.especie, []).append(i)
 
-    por_esp_prev = _previos_por_especie(nidos_previos)
+    if isinstance(nidos_previos, dict) and "__cache__" in nidos_previos:
+        por_esp_prev = nidos_previos
+    else:
+        por_esp_prev = _previos_por_especie(nidos_previos)
 
     total_tasa = 0.0
     N_total    = 0
 
     especies = set(por_esp_nuevo.keys()) | set(por_esp_prev.keys())
+    if "__cache__" in especies:
+        especies.remove("__cache__")
 
     for esp in especies:
         e = base[esp]
@@ -56,12 +61,15 @@ def calcular_v1(individuo, base, nidos_previos=None):
         # Nidos previos de esta especie
         p_data = por_esp_prev.get(esp)
         if p_data and len(p_data[0]) > 0:
-            xs_p   = np.array(p_data[0])
-            ys_p   = np.array(p_data[1])
-            prfs_p = np.array([
-                float(pf) if pf != 0 else e['prof_opt']
-                for pf in p_data[2]
-            ])
+            xs_p   = p_data[0] if isinstance(p_data[0], np.ndarray) else np.array(p_data[0])
+            ys_p   = p_data[1] if isinstance(p_data[1], np.ndarray) else np.array(p_data[1])
+            if isinstance(p_data[2], np.ndarray):
+                prfs_p = p_data[2]
+            else:
+                prfs_p = np.array([
+                    float(pf) if pf != 0 else e['prof_opt']
+                    for pf in p_data[2]
+                ])
         else:
             xs_p = ys_p = prfs_p = np.array([])
 
@@ -124,7 +132,10 @@ def calcular_v3(individuo, base, nidos_previos=None):
     if N == 0:
         return 0.0
 
-    por_esp_prev = _previos_por_especie(nidos_previos)
+    if isinstance(nidos_previos, dict) and "__cache__" in nidos_previos:
+        por_esp_prev = nidos_previos
+    else:
+        por_esp_prev = _previos_por_especie(nidos_previos)
     por_esp_new  = {}
     for g in genes:
         por_esp_new.setdefault(g.especie, []).append(g)
@@ -150,8 +161,8 @@ def calcular_v3(individuo, base, nidos_previos=None):
         # (b) nuevo-vs-previo
         p_data = por_esp_prev.get(esp)
         if p_data and len(p_data[0]) > 0:
-            xs_p = np.array(p_data[0])
-            ys_p = np.array(p_data[1])
+            xs_p = p_data[0] if isinstance(p_data[0], np.ndarray) else np.array(p_data[0])
+            ys_p = p_data[1] if isinstance(p_data[1], np.ndarray) else np.array(p_data[1])
             n_p  = len(xs_p)
             dx   = xs_n[:, None] - xs_p[None, :]
             dy   = ys_n[:, None] - ys_p[None, :]

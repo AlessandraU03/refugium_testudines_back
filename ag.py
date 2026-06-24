@@ -13,7 +13,27 @@ _PROB_MUT   = 0.15
 def ejecutar_ag(nidos_entrada, gestor, base, corral,
                 nidos_ocupados=None, callback=None):
    
-    previos = nidos_ocupados or []
+    previos_raw = nidos_ocupados or []
+    
+    # Preprocesar nidos_ocupados a un caché NumPy para optimizar el rendimiento del AG
+    import numpy as np
+    previos_cache = {"__cache__": True}
+    if nidos_ocupados:
+        por_esp = {}
+        for n in nidos_ocupados:
+            e = n['especie']
+            por_esp.setdefault(e, ([], [], []))
+            por_esp[e][0].append(float(n['x']))
+            por_esp[e][1].append(float(n['y']))
+            por_esp[e][2].append(float(n.get('prof', 0)))
+        
+        for esp, (xs, ys, profs) in por_esp.items():
+            e = base.get(esp, {})
+            prof_opt = e.get('prof_opt', 45.0)
+            xs_p = np.array(xs)
+            ys_p = np.array(ys)
+            prfs_p = np.array([float(pf) if pf != 0 else prof_opt for pf in profs])
+            previos_cache[esp] = (xs_p, ys_p, prfs_p)
 
     h = {k: [] for k in [
         'mejor', 'promedio',
@@ -24,10 +44,10 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
 
     # ── 1. Inicialización ──────────────────────────────────────────────────────
     poblacion = inicializar_poblacion(
-        _TAM_POB, nidos_entrada, gestor, base, previos)
+        _TAM_POB, nidos_entrada, gestor, base, previos_raw)
 
     # ── 2. Evaluación inicial ──────────────────────────────────────────────────
-    evaluar_poblacion(poblacion, gestor, base, corral, previos)
+    evaluar_poblacion(poblacion, gestor, base, corral, previos_cache)
     mejor_global = max(poblacion, key=lambda i: i.fitness).copia()
     _registrar(h, poblacion, mejor_global)
 
@@ -35,7 +55,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
     prom_ini = sum(fits_ini) / len(fits_ini)
     print(f"\n{'='*60}")
     print(f"  AG: {len(nidos_entrada)} nidos nuevos | "
-          f"{len(previos)} previos | pop={_TAM_POB} | gen={_N_GEN}")
+          f"{len(previos_raw)} previos | pop={_TAM_POB} | gen={_N_GEN}")
     print(f"  Fitness inicial -> mejor:{mejor_global.fitness:.4f} prom:{prom_ini:.4f}")
     print(f"  V1={mejor_global.v1:.3f} V2={mejor_global.v2:.3f} "
           f"V3={mejor_global.v3:.4f} V4={mejor_global.v4:.4f}")
@@ -48,11 +68,11 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
 
         for p1, p2 in parejas:
             h1, h2 = cruza_por_especie(p1, p2, _PROB_CRUZA)
-            h1 = mutacion_combinada(h1, _PROB_MUT, base, gestor, previos)
-            h2 = mutacion_combinada(h2, _PROB_MUT, base, gestor, previos)
+            h1 = mutacion_combinada(h1, _PROB_MUT, base, gestor, previos_cache)
+            h2 = mutacion_combinada(h2, _PROB_MUT, base, gestor, previos_cache)
             descendencia.extend([h1, h2])
 
-        evaluar_poblacion(descendencia, gestor, base, corral, previos)
+        evaluar_poblacion(descendencia, gestor, base, corral, previos_cache)
         poblacion = poda_elitismo(poblacion, descendencia, _TAM_POB, n_elite=2)
 
         mejor_actual = max(poblacion, key=lambda i: i.fitness)
