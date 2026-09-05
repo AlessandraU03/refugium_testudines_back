@@ -20,7 +20,6 @@ def inicializar_poblacion(tam_pob, nidos_entrada, gestor, base,
 
 
 def _crear_semi(nidos_entrada, gestor, base, nivel, nidos_ocupados):
-   
     genes   = []
     por_esp = {}
     for id_nido, especie in nidos_entrada:
@@ -60,7 +59,6 @@ def _crear_semi(nidos_entrada, gestor, base, nivel, nidos_ocupados):
 
 
 def _crear_aleatorio(nidos_entrada, gestor, base, nidos_ocupados):
-    
     genes   = []
     por_esp = {}
     for id_nido, especie in nidos_entrada:

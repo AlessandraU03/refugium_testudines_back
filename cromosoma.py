@@ -148,19 +148,6 @@ class GestorZonas:
 
     def posiciones_cuadricula(self, nombre_zona, n_nidos, sep_min=100.0,
                               nidos_ocupados=None):
-        """
-        Genera posiciones en cuadrícula con PASO GARANTIZADO >= sep_min.
-
-        Algoritmo:
-        1. Calcula cuántas columnas y filas caben en la zona con paso = sep_min.
-           El centroide de celdas vecinas siempre estará a exactamente paso_x
-           o paso_y de distancia, ambos >= sep_min.
-        2. Filtra celdas que violarían sep_min con nidos previos de la misma
-           especie (de jornadas anteriores).
-        3. Mezcla y retorna las primeras n_nidos.
-        4. Si la zona está saturada (insuficientes celdas libres), completa
-           con posiciones aleatorias buscando respetar sep_min.
-        """
         lim = self.limites_zona(nombre_zona)
         if not lim or n_nidos == 0:
             return []
@@ -169,15 +156,12 @@ class GestorZonas:
         alto_z   = lim['ymax'] - lim['ymin']
         especie  = lim['especie']
 
-        # Número de celdas que caben con paso exactamente sep_min
         cols  = max(1, int(ancho_z / sep_min))
         filas = max(1, int(alto_z  / sep_min))
 
-        # Paso real (>= sep_min siempre)
         paso_x = ancho_z / cols
         paso_y = alto_z  / filas
 
-        # Centroides de todas las celdas
         todas = []
         for f in range(filas):
             for c in range(cols):
@@ -185,7 +169,6 @@ class GestorZonas:
                 y = lim['ymin'] + paso_y * (f + 0.5)
                 todas.append((round(x, 1), round(y, 1)))
 
-        # Filtrar con nidos previos de la misma especie
         if nidos_ocupados:
             prev_esp = [(oc['x'], oc['y'])
                         for oc in nidos_ocupados
@@ -215,7 +198,6 @@ class GestorZonas:
             intentos += 1
             cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
             cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
-            # Verificar sep_min contra ya-seleccionadas y contra previos
             valida = all(
                 math.sqrt((cx - px)**2 + (cy - py)**2) >= sep_min
                 for px, py in seleccionadas
@@ -226,7 +208,6 @@ class GestorZonas:
             if valida:
                 seleccionadas.append((cx, cy))
 
-        # Si la zona está completamente saturada, añadir sin garantía
         while len(seleccionadas) < n_nidos:
             cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
             cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
@@ -301,45 +282,66 @@ class RegistroJornadas:
             hoy = datetime.today()
 
         activos = []
-        for jornada in self.datos['jornadas']:
+        for jornada in self.datos.get('jornadas', []):
             try:
                 fs = datetime.strptime(jornada['fecha'], '%Y-%m-%d')
             except ValueError:
                 continue
-            for nido in jornada['nidos']:
-                dias_max = base[nido['especie']]['dias_max']
+            for nido in jornada.get('nidos', []):
+                esp = nido.get('especie', 'golfina')
+                dias_max = base.get(esp, {}).get('dias_max', 50)
                 fecha_eclosion = fs + timedelta(days=dias_max)
-                if fecha_eclosion >= hoy:
+                # Incluir nidos activos en incubación o que eclosionaron hace menos de 15 días (descanso de arena)
+                if fecha_eclosion + timedelta(days=15) >= hoy:
                     activos.append({
                         **nido,
+                        'especie':        esp,
                         'fecha_siembra':  jornada['fecha'],
                         'fecha_eclosion': fecha_eclosion.strftime('%Y-%m-%d'),
+                        'eclosionado':    fecha_eclosion < hoy,
                         # Zonas de la jornada en que fue sembrado este nido.
-                        # Permite al frontend dibujarlo dentro de su zona original.
                         'zonas_jornada':  jornada.get('zonas', {}),
                     })
         return activos
 
     def resumen_temporada(self):
-        if not self.datos['jornadas']:
+        js = self.datos.get('jornadas', [])
+        if not js:
             return {}
-        js = self.datos['jornadas']
+        
+        total_g = 0
+        total_p = 0
+        total_l = 0
+        total_v1 = 0.0
+        
+        for j in js:
+            entradas = j.get('entradas', {})
+            g = entradas.get('golfina', j.get('n_golfina', 0))
+            p = entradas.get('prieta', j.get('n_prieta', 0))
+            l = entradas.get('laud', j.get('n_laud', 0))
+            total_g += g
+            total_p += p
+            total_l += l
+            
+            res = j.get('resultado', {})
+            total_v1 += res.get('v1', 0.85)
+            
         return {
             'jornadas':    len(js),
-            'total_nidos': sum(j['entradas']['golfina'] +
-                               j['entradas']['prieta'] +
-                               j['entradas']['laud'] for j in js),
-            'golfina':     sum(j['entradas']['golfina'] for j in js),
-            'prieta':      sum(j['entradas']['prieta']  for j in js),
-            'laud':        sum(j['entradas']['laud']    for j in js),
-            'v1_promedio': round(
-                sum(j['resultado']['v1'] for j in js) / len(js), 4),
+            'total_nidos': total_g + total_p + total_l,
+            'golfina':     total_g,
+            'prieta':      total_p,
+            'laud':        total_l,
+            'v1_promedio': round(total_v1 / len(js), 4),
         }
 
     def limpiar_temporada(self):
         self.datos = {'temporada': str(datetime.now().year), 'jornadas': []}
         if os.path.exists(self.ruta):
-            os.remove(self.ruta)
+            try:
+                os.remove(self.ruta)
+            except Exception:
+                pass
 
 
 def calcular_capacidad_restante(corral, nidos_activos, sep_min=100.0):

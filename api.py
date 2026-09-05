@@ -2,6 +2,7 @@ import os, sys, math
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -9,6 +10,7 @@ from cromosoma import (cargar_base_conocimiento, GestorZonas,
                        RegistroJornadas, calcular_capacidad_restante)
 from ag import ejecutar_ag
 
+# Servidor API Flask - Refugium Testudinis
 app  = Flask(__name__)
 CORS(app)
 
@@ -17,6 +19,106 @@ JORNADAS_FILE = os.path.join(os.path.dirname(__file__), 'jornadas.json')
 
 BASE, CORRAL = cargar_base_conocimiento(CSV_DIR)
 REGISTRO     = RegistroJornadas(JORNADAS_FILE)
+
+
+def obtener_sector_fisico(x_cm, y_cm):
+    """
+    Traduce coordenadas en cm al sector físico de 2x2 metros (A-1 a T-18).
+    """
+    x_m = float(x_cm) * 0.01
+    y_m = float(y_cm) * 0.01
+    col_idx = min(max(0, int(x_m / 2.0)), 19)
+    row_idx = min(max(0, int(y_m / 2.0)), 17)
+    letras = "ABCDEFGHIJKLMNOPQRST"
+    letra = letras[col_idx] if col_idx < len(letras) else "?"
+    numero = row_idx + 1
+    return f"{letra}-{numero}"
+
+
+def calcular_modelo_girondot(f_siembra_dt, prof_cm):
+    """
+    Modelo de Sandoval et al. (2020) con ecuación de Girondot (1999) para Lepidochelys olivacea:
+    Pivote P = 29.95 °C, S = -0.6301
+    Formula: Pm = 1 / (1 + exp((P - T) / S))
+    """
+    mes = f_siembra_dt.month
+    # Perfil térmico típico del Pacífico mexicano (Sandoval 2020, de la Torre 2017)
+    temps_mes = {
+        1: 25.5, 2: 26.0, 3: 27.0, 4: 28.5, 5: 30.0, 6: 31.8,
+        7: 33.2, 8: 32.8, 9: 31.9, 10: 30.1, 11: 27.2, 12: 25.0
+    }
+    t_base = temps_mes.get(mes, 30.0)
+    # A 45 cm la arena amortigua el calor solar; a menor profundidad se calienta más
+    delta_prof = (45.0 - float(prof_cm)) * 0.08
+    t_media_pts = round(t_base + delta_prof, 2)
+
+    pivote = 29.95
+    s = -0.6301
+    try:
+        exp_val = math.exp((pivote - t_media_pts) / s)
+        pm = 1.0 / (1.0 + exp_val)
+    except OverflowError:
+        pm = 0.0 if t_media_pts > pivote else 1.0
+
+    pm = max(0.0, min(1.0, pm))
+    pct_macho = round(pm * 100.0, 1)
+    pct_hembra = round((1.0 - pm) * 100.0, 1)
+    return {
+        'temp_estimada_pts': t_media_pts,
+        'pct_machos': pct_macho,
+        'pct_hembras': pct_hembra,
+        'sesgo': 'Feminizado (Predominio Hembras)' if pct_hembra > 65.0 else ('Masculinizado (Predominio Machos)' if pct_macho > 65.0 else 'Equilibrado (~50/50)')
+    }
+
+
+def obtener_clustering(nidos):
+    if not nidos:
+        return {'centroids': [], 'labels': [], 'clusters': []}
+    
+    coords = np.array([[float(n['x']), float(n['y'])] for n in nidos], dtype=float)
+    N = len(nidos)
+    K = max(1, N // 15)
+    if K > N:
+        K = N
+    
+    np.random.seed(42)
+    idx_centroids = np.random.choice(N, K, replace=False)
+    centroids = coords[idx_centroids].copy()
+    labels = np.zeros(N, dtype=int)
+    
+    for _ in range(30):
+        dists = np.sum((coords[:, None, :] - centroids[None, :, :])**2, axis=2)
+        new_labels = np.argmin(dists, axis=1)
+        if np.array_equal(labels, new_labels):
+            break
+        labels = new_labels
+        for i in range(K):
+            mask = (labels == i)
+            if np.sum(mask) > 0:
+                centroids[i] = np.mean(coords[mask], axis=0)
+                
+    clusters_list = []
+    for i in range(K):
+        indices = np.where(labels == i)[0]
+        nidos_cluster = [nidos[idx] for idx in indices]
+        conteo_activos = sum(1 for n in nidos_cluster if not n.get('eclosionado', False))
+        es_hotspot = conteo_activos >= 12
+        
+        clusters_list.append({
+            'id': i,
+            'cx': float(centroids[i][0]),
+            'cy': float(centroids[i][1]),
+            'nidos': nidos_cluster,
+            'conteo_total': len(nidos_cluster),
+            'conteo_activos': conteo_activos,
+            'es_hotspot': es_hotspot
+        })
+        
+    return {
+        'centroids': centroids.tolist(),
+        'labels': labels.tolist(),
+        'clusters': clusters_list
+    }
 
 
 @app.route('/api/base-conocimiento')
@@ -29,20 +131,15 @@ def ejecutar():
     data = request.get_json()
 
     n_g   = max(0, int(data.get('n_golfina', 0)))
-    n_p   = max(0, int(data.get('n_prieta',  0)))
-    n_l   = max(0, int(data.get('n_laud',    0)))
+    n_p   = 0
+    n_l   = 0
     fecha = data.get('fecha', datetime.today().strftime('%Y-%m-%d'))
 
-    if n_g + n_p + n_l == 0:
-        return jsonify({'error': 'Ingresa al menos 1 nido'}), 400
+    if n_g == 0:
+        return jsonify({'error': 'Ingresa al menos 1 nido de Golfina'}), 400
 
     gestor = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)
-
-    nidos_entrada = (
-        [(i,             'golfina') for i in range(n_g)] +
-        [(n_g + i,       'prieta')  for i in range(n_p)] +
-        [(n_g + n_p + i, 'laud')    for i in range(n_l)]
-    )
+    nidos_entrada = [(i, 'golfina') for i in range(n_g)]
 
     try:
         nidos_activos = REGISTRO.obtener_nidos_activos(fecha, BASE)
@@ -55,57 +152,70 @@ def ejecutar():
     mejor, top3, historial = ejecutar_ag(
         nidos_entrada, gestor, BASE, CORRAL, nidos_ocupados)
 
+    # Parsear fecha de siembra
+    try:
+        f_siembra = datetime.strptime(fecha, '%Y-%m-%d')
+    except ValueError:
+        f_siembra = datetime.today()
+
     def ser_ind(ind):
         return {
             'fitness': round(ind.fitness, 6),
             'v1': round(ind.v1, 4),
             'v2': round(ind.v2, 4),
             'v3': round(ind.v3, 4),
-            'v4': round(ind.v4, 4),
             'genes': [{
                 'id':      g.id_nido,
                 'especie': g.especie,
                 'x':       g.x,
                 'y':       g.y,
                 'prof':    g.prof,
+                'sector':  obtener_sector_fisico(g.x, g.y),
                 'zona':    g.zona_correcta(),
+                'proporcion_sexual': calcular_modelo_girondot(f_siembra, g.prof)
             } for g in ind.genes],
         }
 
-    # Fechas de eclosión
-    try:
-        f_siembra = datetime.strptime(fecha, '%Y-%m-%d')
-    except ValueError:
-        f_siembra = datetime.today()
-
+    # Fechas de eclosión y Periodo Termosensible (PTS)
     fechas = []
-    for esp in ['golfina', 'prieta', 'laud']:
-        if not any(g.especie == esp for g in mejor.genes):
-            continue
-        dp = BASE[esp]['dias_prom']
-        fechas.append({
-            'especie':         esp,
-            'fecha_siembra':   f_siembra.strftime('%Y-%m-%d'),
-            'dias_incubacion': dp,
-            'fecha_eclosion':  (f_siembra + timedelta(days=dp)).strftime('%Y-%m-%d'),
-        })
+    dp = BASE['golfina']['dias_prom']
+    fecha_min = (f_siembra + timedelta(days=45)).strftime('%Y-%m-%d')
+    fecha_max = (f_siembra + timedelta(days=55)).strftime('%Y-%m-%d')
 
-    # Validación por especie
-    import numpy as np
+    pts_ini_dias = round(dp / 3)
+    pts_fin_dias = round(2 * dp / 3)
+    pts_ini_str = (f_siembra + timedelta(days=pts_ini_dias)).strftime('%Y-%m-%d')
+    pts_fin_str = (f_siembra + timedelta(days=pts_fin_dias)).strftime('%Y-%m-%d')
+
+    prof_media = float(np.mean([g.prof for g in mejor.genes])) if mejor.genes else 45.0
+    sex_ratio_global = calcular_modelo_girondot(f_siembra, prof_media)
+
+    fechas.append({
+        'especie':            'golfina',
+        'fecha_siembra':      f_siembra.strftime('%Y-%m-%d'),
+        'dias_incubacion':    dp,
+        'fecha_eclosion':     (f_siembra + timedelta(days=dp)).strftime('%Y-%m-%d'),
+        'fecha_eclosion_min': fecha_min,
+        'fecha_eclosion_max': fecha_max,
+        'pts_inicio':         pts_ini_str,
+        'pts_fin':            pts_fin_str,
+        'pts_dias':           f"Días {pts_ini_dias} al {pts_fin_dias} de incubación",
+        'proporcion_sexual':  sex_ratio_global,
+    })
+
+    # Validación
     validacion = []
-    for esp in ['golfina', 'prieta', 'laud']:
-        gs_esp = [g for g in mejor.genes if g.especie == esp]
-        if not gs_esp:
-            continue
-        e    = BASE[esp]
+    gs_esp = [g for g in mejor.genes if g.especie == 'golfina']
+    if gs_esp:
+        e    = BASE['golfina']
         prfs = np.array([g.prof for g in gs_esp])
         fp   = np.exp(-((prfs - e['prof_opt'])**2) / (2 * e['sigma']**2))
         xs_n = np.array([g.x for g in gs_esp])
         ys_n = np.array([g.y for g in gs_esp])
         n_e  = len(gs_esp)
 
-        xs_prev = np.array([n['x'] for n in nidos_ocupados if n['especie'] == esp])
-        ys_prev = np.array([n['y'] for n in nidos_ocupados if n['especie'] == esp])
+        xs_prev = np.array([n['x'] for n in nidos_ocupados if n['especie'] == 'golfina'])
+        ys_prev = np.array([n['y'] for n in nidos_ocupados if n['especie'] == 'golfina'])
         xs_all  = np.concatenate([xs_n, xs_prev])
         ys_all  = np.concatenate([ys_n, ys_prev])
         n_all   = len(xs_all)
@@ -123,10 +233,14 @@ def ejecutar():
 
         tasas = e['tasa_promedio'] + (e['tasa_maxima'] - e['tasa_promedio']) * fp * fs
         validacion.append({
-            'especie':  esp,
+            'especie':  'golfina',
             'historico': round(float(e['tasa_promedio']), 4),
             'estimado':  round(float(tasas.mean()), 4),
             'maximo':    round(float(e['tasa_maxima']), 4),
+            'benchmark_oaxaca_eclosion': 0.866,   # de la Torre-Robles et al. (2017)
+            'benchmark_oaxaca_emergencia': 0.827, # de la Torre-Robles et al. (2017)
+            'benchmark_oaxaca_mortalidad': 0.053, # de la Torre-Robles et al. (2017)
+            'benchmark_sinaloa_pivote': 29.95,     # Sandoval et al. (2020)
         })
 
     zonas = [{
@@ -144,11 +258,50 @@ def ejecutar():
         'prof':           n['prof'],
         'fecha_siembra':  n['fecha_siembra'],
         'fecha_eclosion': n['fecha_eclosion'],
+        'eclosionado':    n.get('eclosionado', False),
         'zonas_jornada':  n.get('zonas_jornada', {}),
         'jornada_previa': True,
     } for n in nidos_activos]
 
     total_corral = len(mejor.genes) + len(nidos_activos)
+
+    # Preparar datos para clustering (previos + nuevos)
+    todos_para_clustering = []
+    for g in mejor.genes:
+        todos_para_clustering.append({
+            'id':             g.id_nido,
+            'especie':        g.especie,
+            'x':              g.x,
+            'y':              g.y,
+            'prof':           g.prof,
+            'fecha_siembra':  fecha,
+            'fecha_eclosion': (f_siembra + timedelta(days=BASE[g.especie]['dias_prom'])).strftime('%Y-%m-%d'),
+            'eclosionado':    False,
+            'tipo':           'nuevo'
+        })
+    for n in nidos_activos:
+        todos_para_clustering.append({
+            'id':             n['id'],
+            'especie':        n['especie'],
+            'x':              n['x'],
+            'y':              n['y'],
+            'prof':           n['prof'],
+            'fecha_siembra':  n['fecha_siembra'],
+            'fecha_eclosion': n['fecha_eclosion'],
+            'eclosionado':    n.get('eclosionado', False),
+            'tipo':           'previo'
+        })
+
+    clustering = obtener_clustering(todos_para_clustering)
+
+    # Alerta de calor
+    nidos_activos_incubando = [n for n in todos_para_clustering if not n.get('eclosionado', False)]
+    capacidad_max = int(CORRAL.get('capacidad_maxima_nidos_simultaneos', 400))
+    pct = (len(nidos_activos_incubando) / capacidad_max) * 100.0 if capacidad_max > 0 else 0.0
+    alerta_calor = {
+        'activada': pct >= 75.0,
+        'mensaje': "Atención: Capacidad de incubación alta (>75%). El calor metabólico acumulado puede elevar la temperatura de la arena por encima del umbral crítico de 29.7°C, induciendo feminización de crías (sesgo de género) y afectando la viabilidad embrionaria." if pct >= 75.0 else None
+    }
 
     return jsonify({
         'historial':     historial,
@@ -159,11 +312,13 @@ def ejecutar():
         'zonas':         zonas,
         'corral':        CORRAL,
         'n_golfina':     n_g,
-        'n_prieta':      n_p,
-        'n_laud':        n_l,
+        'n_prieta':      0,
+        'n_laud':        0,
         'nidos_previos': nidos_previos_serial,
         'n_previos':     len(nidos_activos),
         'total_corral':  total_corral,
+        'clustering':    clustering,
+        'alerta_calor':  alerta_calor
     })
 
 
@@ -171,7 +326,9 @@ def ejecutar():
 def guardar_jornada():
     data  = request.get_json()
     fecha = data['fecha']
-    n_g, n_p, n_l = data['n_golfina'], data['n_prieta'], data['n_laud']
+    n_g   = int(data.get('n_golfina', 0))
+    n_p   = 0
+    n_l   = 0
 
     from cromosoma import Gen, Individuo
     genes = [Gen(g['id'], g['especie'], g['x'], g['y'], g['prof'])
@@ -181,11 +338,9 @@ def guardar_jornada():
     ind.v1 = data['mejor']['v1']
     ind.v2 = data['mejor']['v2']
     ind.v3 = data['mejor']['v3']
-    ind.v4 = data['mejor']['v4']
+    ind.v4 = 0.0
 
-    # params guardados en jornada solo para registro histórico
     params = {'tam_pob': 50, 'n_gen': 100, 'prob_cruza': 0.85, 'prob_mut': 0.15}
-    # Reconstruir gestor con los mismos conteos para guardar los límites de zona
     gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)
     jornada = REGISTRO.guardar_jornada(fecha, n_g, n_p, n_l, ind, params, gestor=gestor_guardar)
     return jsonify({'ok': True, 'jornada': jornada})
@@ -198,10 +353,24 @@ def corral_temporada():
         nidos = REGISTRO.obtener_nidos_activos(fecha_hoy, BASE)
     except Exception:
         nidos = []
+
+    nidos_activos_incubando = [n for n in nidos if not n.get('eclosionado', False)]
+    capacidad_max = int(CORRAL.get('capacidad_maxima_nidos_simultaneos', 400))
+    pct = (len(nidos_activos_incubando) / capacidad_max) * 100.0 if capacidad_max > 0 else 0.0
+
+    alerta_calor = {
+        'activada': pct >= 75.0,
+        'mensaje': "Atención: Capacidad de incubación alta (>75%). El calor metabólico acumulado puede elevar la temperatura de la arena por encima del umbral crítico de 29.7°C, induciendo feminización de crías (sesgo de género) y afectando la viabilidad embrionaria." if pct >= 75.0 else None
+    }
+
+    clustering = obtener_clustering(nidos)
+
     return jsonify({
         'nidos':   nidos,
         'resumen': REGISTRO.resumen_temporada(),
         'corral':  CORRAL,
+        'clustering': clustering,
+        'alerta_calor': alerta_calor
     })
 
 

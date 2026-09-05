@@ -112,20 +112,9 @@ def calcular_v1(individuo, base, nidos_previos=None):
     return round(float(np.clip(v1, _TASA_MIN_ABS, _TASA_MAX_ABS)), 6)
 
 
-# ── V2 ─────────────────────────────────────────────────────────────────────────
+# ── V2 (Antes V3) — Violaciones de Separación Mínima ───────────────────────────
 
-def calcular_v2(individuo, gestor):
-   
-    N = individuo.num_nidos()
-    if N == 0:
-        return 0.0
-    fuera = sum(1 for g in individuo.genes if not g.en_zona_correcta(gestor))
-    return round(fuera / N, 6)
-
-
-# ── V3 ─────────────────────────────────────────────────────────────────────────
-
-def calcular_v3(individuo, base, nidos_previos=None):
+def calcular_v2(individuo, base, nidos_previos=None):
    
     genes = individuo.genes
     N     = len(genes)
@@ -173,9 +162,9 @@ def calcular_v3(individuo, base, nidos_previos=None):
     return round(pares_malos / pares_total, 6) if pares_total > 0 else 0.0
 
 
-# ── V4 ─────────────────────────────────────────────────────────────────────────
+# ── V3 (Antes V4) — Desviación de Profundidad ──────────────────────────────────
 
-def calcular_v4(individuo, base):
+def calcular_v3(individuo, base):
    
     genes = individuo.genes
     N     = len(genes)
@@ -196,22 +185,22 @@ def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None):
    
     if individuo.num_nidos() == 0:
         individuo.fitness = 0.0
-        individuo.v1 = individuo.v2 = individuo.v3 = individuo.v4 = 0.0
+        individuo.v1 = individuo.v2 = individuo.v3 = 0.0
+        individuo.v4 = 0.0
         return 0.0
 
     v1_raw = calcular_v1(individuo, base, nidos_previos)
-    v2     = calcular_v2(individuo, gestor)
-    v3     = calcular_v3(individuo, base, nidos_previos)
-    v4     = calcular_v4(individuo, base)
+    v2     = calcular_v2(individuo, base, nidos_previos)
+    v3     = calcular_v3(individuo, base)
 
     v1_norm = _norm_v1(v1_raw)
-    fitness = v1_norm - (v2 + v3 + v4) / 3.0
+    fitness = v1_norm - (v2 + v3) / 2.0
 
     individuo.fitness = round(float(fitness), 6)
     individuo.v1      = v1_raw
     individuo.v2      = v2
     individuo.v3      = v3
-    individuo.v4      = v4
+    individuo.v4      = 0.0
     return individuo.fitness
 
 

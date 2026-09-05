@@ -38,8 +38,8 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
     h = {k: [] for k in [
         'mejor', 'promedio',
         'v1_mejor', 'v1_promedio',
-        'v2_mejor', 'v3_mejor',
-        'v3_promedio', 'v4_mejor'
+        'v2_mejor', 'v2_promedio',
+        'v3_mejor', 'v3_promedio'
     ]}
 
     # ── 1. Inicialización ──────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
           f"{len(previos_raw)} previos | pop={_TAM_POB} | gen={_N_GEN}")
     print(f"  Fitness inicial -> mejor:{mejor_global.fitness:.4f} prom:{prom_ini:.4f}")
     print(f"  V1={mejor_global.v1:.3f} V2={mejor_global.v2:.3f} "
-          f"V3={mejor_global.v3:.4f} V4={mejor_global.v4:.4f}")
+          f"V3={mejor_global.v3:.4f}")
     print(f"{'='*60}")
 
     # ── 3-6. Ciclo evolutivo ───────────────────────────────────────────────────
@@ -86,7 +86,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
             prom = sum(fits) / len(fits)
             print(f"  Gen {gen_num+1:3d} | Mejor={mejor_global.fitness:.4f} "
                   f"Prom={prom:.4f} | V1={mejor_global.v1:.3f} "
-                  f"V3={mejor_global.v3:.4f}")
+                  f"V2={mejor_global.v2:.3f}")
 
         if callback:
             fits = [i.fitness for i in poblacion]
@@ -96,7 +96,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
     prom_fin = sum(fits_fin) / len(fits_fin)
     print(f"\n  [OK] Finalizado | Mejor={mejor_global.fitness:.4f} Prom={prom_fin:.4f}")
     print(f"  V1={mejor_global.v1:.3f} V2={mejor_global.v2:.3f} "
-          f"V3={mejor_global.v3:.4f} V4={mejor_global.v4:.4f}")
+          f"V3={mejor_global.v3:.4f}")
 
     top3 = sorted(poblacion, key=lambda i: i.fitness, reverse=True)[:3]
     return mejor_global, top3, h
@@ -105,6 +105,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
 def _registrar(h, pob, mejor):
     fits = [i.fitness for i in pob]
     v1s  = [i.v1 for i in pob if i.v1 is not None]
+    v2s  = [i.v2 for i in pob if i.v2 is not None]
     v3s  = [i.v3 for i in pob if i.v3 is not None]
 
     h['mejor'].append(mejor.fitness)
@@ -112,6 +113,6 @@ def _registrar(h, pob, mejor):
     h['v1_mejor'].append(mejor.v1 or 0)
     h['v1_promedio'].append(sum(v1s) / len(v1s) if v1s else 0)
     h['v2_mejor'].append(mejor.v2 or 0)
+    h['v2_promedio'].append(sum(v2s) / len(v2s) if v2s else 0)
     h['v3_mejor'].append(mejor.v3 or 0)
     h['v3_promedio'].append(sum(v3s) / len(v3s) if v3s else 0)
-    h['v4_mejor'].append(mejor.v4 or 0)
