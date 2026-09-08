@@ -230,7 +230,7 @@ def calcular_v2(individuo, base, nidos_previos=None):
     return round(pares_malos / pares_total, 6) if pares_total > 0 else 0.0
 
 
-# ── V3 (Antes V4) — Desviación de Profundidad ──────────────────────────────────
+# ── V3 — Desviación de Profundidad ────────────────────────────────────────────
 
 def calcular_v3(individuo, base):
    
@@ -254,7 +254,6 @@ def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None, modo='
     if individuo.num_nidos() == 0:
         individuo.fitness = 0.0
         individuo.v1 = individuo.v2 = individuo.v3 = 0.0
-        individuo.v4 = 0.0
         return 0.0
 
     if modo == 'cientifico':
@@ -272,7 +271,6 @@ def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None, modo='
     individuo.v1      = v1_raw
     individuo.v2      = v2
     individuo.v3      = v3
-    individuo.v4      = 0.0
     return individuo.fitness
 
 
@@ -427,7 +425,7 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
     """
     if individuo.num_nidos() == 0:
         individuo.fitness = 0.0
-        individuo.v1 = individuo.v2 = individuo.v3 = individuo.v4 = 0.0
+        individuo.v1 = individuo.v2 = individuo.v3 = 0.0
         return 0.0
 
     # V1: tasa de eclosión (sin cambios)
@@ -455,7 +453,6 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
     individuo.v1 = v1_raw
     individuo.v2 = 1.0 - efecto_sep  # Inversión: v2 original era violaciones
     individuo.v3 = 1.0 - efecto_prof
-    individuo.v4 = 0.0
     individuo.orden = orden
 
     return individuo.fitness

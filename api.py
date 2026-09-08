@@ -366,7 +366,6 @@ def guardar_jornada():
     ind.v1 = data['mejor']['v1']
     ind.v2 = data['mejor']['v2']
     ind.v3 = data['mejor']['v3']
-    ind.v4 = 0.0
 
     params = {'tam_pob': 50, 'n_gen': 100, 'prob_cruza': 0.85, 'prob_mut': 0.15}
     gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)

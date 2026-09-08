@@ -3,8 +3,41 @@ from datetime import datetime, timedelta
 
 
 def cargar_csv(ruta):
+    """Lee un CSV de la base de conocimiento validando que este bien formado.
+
+    La base de conocimiento es la fuente de todos los parametros del sistema y
+    cada fila declara su procedencia documental. Una coma sin comillas dentro de
+    un campo de texto desplaza las columnas y csv.DictReader lo absorbe en
+    silencio: los valores quedan corridos o van a parar a la clave None. Se
+    valida aqui, en el unico punto de carga, para que el error salte al leer el
+    archivo y no mas adelante como un numero equivocado.
+    """
     with open(ruta, newline='', encoding='utf-8') as f:
-        return list(csv.DictReader(f))
+        lector = csv.DictReader(f)
+        filas = list(lector)
+        columnas = lector.fieldnames
+
+    if not columnas:
+        raise ValueError('%s: el archivo esta vacio o no tiene encabezado.' % os.path.basename(ruta))
+
+    nombre = os.path.basename(ruta)
+    for i, fila in enumerate(filas):
+        # linea real en el archivo: +1 por el encabezado, +1 porque i es base 0
+        linea = i + 2
+        if None in fila:
+            sobrantes = fila[None]
+            raise ValueError(
+                '%s linea %d: hay mas campos que columnas (%d declaradas). '
+                'Sobra %r. Suele deberse a una coma dentro de un texto sin '
+                'comillas: encierra ese campo entre comillas dobles.'
+                % (nombre, linea, len(columnas), sobrantes))
+        faltantes = [c for c in columnas if fila.get(c) is None]
+        if faltantes:
+            raise ValueError(
+                '%s linea %d: faltan las columnas %s.'
+                % (nombre, linea, ', '.join(faltantes)))
+
+    return filas
 
 
 def cargar_base_conocimiento(carpeta_csv):
@@ -101,7 +134,7 @@ class Individuo:
     def __init__(self, genes):
         self.genes   = genes
         self.fitness = None
-        self.v1 = self.v2 = self.v3 = self.v4 = None
+        self.v1 = self.v2 = self.v3 = None
         self.orden = None
 
     def num_nidos(self):
@@ -110,7 +143,7 @@ class Individuo:
     def copia(self):
         ind = Individuo([g.copia() for g in self.genes])
         ind.fitness = self.fitness
-        ind.v1, ind.v2, ind.v3, ind.v4 = self.v1, self.v2, self.v3, self.v4
+        ind.v1, ind.v2, ind.v3 = self.v1, self.v2, self.v3
         ind.orden = self.orden
         return ind
 
@@ -341,7 +374,6 @@ class RegistroJornadas:
                 'v1': round(mejor.v1, 4),
                 'v2': round(mejor.v2, 4),
                 'v3': round(mejor.v3, 4),
-                'v4': round(mejor.v4, 4),
             },
             'nidos': nidos
         }
