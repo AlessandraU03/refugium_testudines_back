@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from cromosoma import (cargar_base_conocimiento, GestorZonas,
                        RegistroJornadas, calcular_capacidad_restante)
 from ag import ejecutar_ag
+from evaluacion import calcular_pts_window, calcular_semana_incubacion
 
 # Servidor API Flask - Refugium Testudinis
 app  = Flask(__name__)
@@ -21,18 +22,36 @@ BASE, CORRAL = cargar_base_conocimiento(CSV_DIR)
 REGISTRO     = RegistroJornadas(JORNADAS_FILE)
 
 
-def obtener_sector_fisico(x_cm, y_cm):
+def _etiqueta_columna(idx):
+    """Índice 0-based a etiqueta tipo hoja de cálculo: A..Z, AA, AB, ..."""
+    etiqueta = ""
+    idx += 1
+    while idx > 0:
+        idx, resto = divmod(idx - 1, 26)
+        etiqueta = chr(65 + resto) + etiqueta
+    return etiqueta
+
+
+def sector_grid(corral=None):
+    """Número de columnas y filas de sector que caben en el corral."""
+    c = corral if corral is not None else CORRAL
+    celda = float(c.get('sector_celda_cm') or 200)
+    n_cols  = max(1, math.ceil(float(c['largo_cm']) / celda))
+    n_filas = max(1, math.ceil(float(c['ancho_cm']) / celda))
+    return celda, n_cols, n_filas
+
+
+def obtener_sector_fisico(x_cm, y_cm, corral=None):
     """
-    Traduce coordenadas en cm al sector físico de 2x2 metros (A-1 a T-18).
+    Traduce coordenadas en cm a la etiqueta del sector físico (p. ej. "F-7").
+
+    La rejilla se deriva de largo_cm, ancho_cm y sector_celda_cm de
+    corral_incubacion.csv, así que se adapta a cualquier corral sin tocar código.
     """
-    x_m = float(x_cm) * 0.01
-    y_m = float(y_cm) * 0.01
-    col_idx = min(max(0, int(x_m / 2.0)), 19)
-    row_idx = min(max(0, int(y_m / 2.0)), 17)
-    letras = "ABCDEFGHIJKLMNOPQRST"
-    letra = letras[col_idx] if col_idx < len(letras) else "?"
-    numero = row_idx + 1
-    return f"{letra}-{numero}"
+    celda, n_cols, n_filas = sector_grid(corral)
+    col_idx = min(max(0, int(float(x_cm) / celda)), n_cols  - 1)
+    row_idx = min(max(0, int(float(y_cm) / celda)), n_filas - 1)
+    return f"{_etiqueta_columna(col_idx)}-{row_idx + 1}"
 
 
 def calcular_modelo_girondot(f_siembra_dt, prof_cm):
@@ -158,20 +177,29 @@ def ejecutar():
     except ValueError:
         f_siembra = datetime.today()
 
+    # Calcular ventana de PTS
+    pts_window = calcular_pts_window(f_siembra, 'golfina', BASE)
+
     def ser_ind(ind):
         return {
             'fitness': round(ind.fitness, 6),
             'v1': round(ind.v1, 4),
             'v2': round(ind.v2, 4),
             'v3': round(ind.v3, 4),
+            'orden': round(ind.orden, 4) if ind.orden is not None else None,
             'genes': [{
-                'id':      g.id_nido,
-                'especie': g.especie,
-                'x':       g.x,
-                'y':       g.y,
-                'prof':    g.prof,
-                'sector':  obtener_sector_fisico(g.x, g.y),
-                'zona':    g.zona_correcta(),
+                'id':               g.id_nido,
+                'especie':          g.especie,
+                'x':                g.x,
+                'y':                g.y,
+                'prof':             g.prof,
+                'sector':           obtener_sector_fisico(g.x, g.y),
+                'zona':             g.zona_correcta(),
+                'num_huevas':       g.num_huevas if hasattr(g, 'num_huevas') else 0,
+                'orden_incubacion': g.orden_incubacion if hasattr(g, 'orden_incubacion') else g.id_nido,
+                'fecha_siembra':    fecha,
+                'pts':              pts_window,
+                'semana_info':      calcular_semana_incubacion(f_siembra, datetime.today(), BASE, g.especie),
                 'proporcion_sexual': calcular_modelo_girondot(f_siembra, g.prof)
             } for g in ind.genes],
         }
@@ -344,6 +372,76 @@ def guardar_jornada():
     gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)
     jornada = REGISTRO.guardar_jornada(fecha, n_g, n_p, n_l, ind, params, gestor=gestor_guardar)
     return jsonify({'ok': True, 'jornada': jornada})
+
+
+@app.route('/api/capacidad')
+def capacidad():
+    """
+    Diagnóstico de capacidad: contrasta la superficie instalada contra la
+    curva estacional de llegada de nidos, a densidad de 1 nido/m2.
+    """
+    from capacidad import (capacidad_segura, simular_temporada,
+                           resumen_temporada, separacion_implicita,
+                           DENSIDAD_MAX_NIDOS_M2, DIAS_HASTA_EXCAVACION)
+    from cromosoma import cargar_csv
+    from datetime import date, timedelta
+    import calendar
+
+    corrales_rows = cargar_csv(os.path.join(CSV_DIR, 'corrales.csv'))
+    corrales = [{
+        'id':     int(r['corral_id']),
+        'nombre': r['nombre'],
+        'largo_m': float(r['largo_m']),
+        'ancho_m': float(r['ancho_m']),
+        'area_m2': float(r['largo_m']) * float(r['ancho_m']),
+        'capacidad': capacidad_segura(r['largo_m'], r['ancho_m']),
+        'fuente': r.get('fuente', ''),
+    } for r in corrales_rows]
+
+    cap_total = sum(c['capacidad'] for c in corrales)
+    area_total = sum(c['area_m2'] for c in corrales)
+
+    filas = cargar_csv(os.path.join(CSV_DIR, 'anidacion_mensual.csv'))
+    anio = int(filas[0]['anio']) if filas else 2022
+    por_mes = {int(f['mes']): float(f['nidos']) for f in filas}
+    fuente_datos = filas[0].get('fuente', '') if filas else ''
+
+    arribos = {}
+    for m, n in por_mes.items():
+        dim = calendar.monthrange(anio, m)[1]
+        for d in range(dim):
+            arribos[date(anio, m, 1) + timedelta(days=d)] = n / dim
+
+    dias_inc = BASE['golfina']['dias_prom']
+    serie = simular_temporada(arribos, cap_total, dias_inc)
+    r = resumen_temporada(serie, cap_total)
+
+    con_deficit = [d for d, v in serie.items() if v['deficit'] > 0]
+
+    return jsonify({
+        'densidad_max_nidos_m2': DENSIDAD_MAX_NIDOS_M2,
+        'dias_hasta_excavacion': DIAS_HASTA_EXCAVACION,
+        'dias_incubacion':       dias_inc,
+        'anio_datos':            anio,
+        'fuente_datos':          fuente_datos,
+        'corrales':              corrales,
+        'capacidad_total':       cap_total,
+        'area_total_m2':         area_total,
+        'nidos_temporada':       int(sum(por_mes.values())),
+        'pico_ocupacion':        round(r['pico_ocupacion']),
+        'fecha_pico':            r['fecha_pico'].strftime('%Y-%m-%d'),
+        'cobertura_del_pico':    round(r['cobertura_del_pico'], 4),
+        'deficit_maximo':        round(r['deficit_maximo']),
+        'dias_con_deficit':      r['dias_con_deficit'],
+        'area_faltante_m2':      round(r['area_faltante_m2']),
+        'separacion_en_pico_m':  round(separacion_implicita(area_total, 1.0, r['pico_ocupacion']), 2),
+        'ventana_inicio':        min(con_deficit).strftime('%Y-%m-%d') if con_deficit else None,
+        'ventana_fin':           max(con_deficit).strftime('%Y-%m-%d') if con_deficit else None,
+        'serie': [{'fecha': d.strftime('%Y-%m-%d'),
+                   'ocupados': round(v['ocupados']),
+                   'deficit':  round(v['deficit'])}
+                  for d, v in serie.items() if d.year == anio],
+    })
 
 
 @app.route('/api/corral-temporada')

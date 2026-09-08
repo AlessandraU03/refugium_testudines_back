@@ -1,10 +1,10 @@
-campo,valor
-largo_cm,4000
-ancho_cm,3500
-area_m2,1400
-capacidad_maxima_nidos_simultaneos,400
-capacidad_maxima_nidos_temporada,1500
-profundidad_promedio_cm,45
-humedad_optima_porcentaje,30
-temperatura_optima_celsius,29
-material,arena_natural
+campo,valor,notas
+largo_cm,3000,Visita de campo al Santuario; medida del corral confirmado
+ancho_cm,800,Visita de campo al Santuario; medida del corral confirmado
+area_m2,240,largo_cm x ancho_cm
+capacidad_maxima_nidos_simultaneos,240,area_m2 x 1 nido/m2 (Best Practices IOTN 2018; NOM-162-SEMARNAT-2012)
+sector_celda_cm,200,lado de la celda de sector; debe coincidir con el marcado de estacas en campo
+profundidad_promedio_cm,45,Corzo-Dominguez y Romero-Berny 2025; NOM-162-SEMARNAT-2012
+humedad_optima_porcentaje,30,NOM-162-SEMARNAT-2012
+temperatura_optima_celsius,29,temperatura pivote de determinacion sexual
+material,arena_natural,tipo de sustrato

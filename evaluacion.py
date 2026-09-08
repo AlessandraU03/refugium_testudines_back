@@ -1,5 +1,6 @@
 
 import numpy as np
+from datetime import datetime, timedelta
 
 # Extremos absolutos leídos del CSV de tasa_eclosion:
 #   mínimo: laúd peores condiciones = 0.40
@@ -7,6 +8,73 @@ import numpy as np
 _TASA_MIN_ABS = 0.40
 _TASA_MAX_ABS = 0.90
 _RANGO_ABS    = _TASA_MAX_ABS - _TASA_MIN_ABS   # 0.50
+
+
+def calcular_pts_window(fecha_siembra_dt, especie, base):
+    """
+    Calcula las fechas de inicio y fin del Período Termosensible (PTS).
+    El PTS es el período crítico donde la temperatura determina el sexo.
+
+    Args:
+        fecha_siembra_dt: datetime del día de siembra
+        especie: nombre de especie (golfina, prieta, laud)
+        base: diccionario base de conocimiento con parámetros de especie
+
+    Returns:
+        dict con: pts_inicio, pts_fin, pts_inicio_dia, pts_fin_dia, semana_critica
+    """
+    e = base.get(especie, {})
+
+    dias_prom = e.get('dias_prom', 50)
+    pts_inicio_dia = e.get('pts_inicio_dia', int(dias_prom / 3))
+    pts_fin_dia = e.get('pts_fin_dia', int(2 * dias_prom / 3))
+    semana_critica = e.get('semana_critica', 3)
+
+    pts_inicio = fecha_siembra_dt + timedelta(days=pts_inicio_dia)
+    pts_fin = fecha_siembra_dt + timedelta(days=pts_fin_dia)
+
+    return {
+        'pts_inicio': pts_inicio.strftime('%Y-%m-%d'),
+        'pts_fin': pts_fin.strftime('%Y-%m-%d'),
+        'pts_inicio_dia': pts_inicio_dia,
+        'pts_fin_dia': pts_fin_dia,
+        'semana_critica': semana_critica
+    }
+
+
+def calcular_semana_incubacion(fecha_siembra_dt, fecha_actual_dt, base, especie):
+    """
+    Calcula en qué semana de incubación se encuentra un nido actualmente.
+
+    Args:
+        fecha_siembra_dt: datetime del día de siembra
+        fecha_actual_dt: datetime actual
+        base: diccionario base de conocimiento
+        especie: nombre de especie
+
+    Returns:
+        dict con: semana (int), dias_transcurridos, dias_faltantes, en_pts (bool)
+    """
+    dias_transcurridos = (fecha_actual_dt - fecha_siembra_dt).days
+
+    e = base.get(especie, {})
+    dias_prom = e.get('dias_prom', 50)
+
+    semana = max(1, (dias_transcurridos // 7) + 1)
+
+    pts_inicio = e.get('pts_inicio_dia', int(dias_prom / 3))
+    pts_fin = e.get('pts_fin_dia', int(2 * dias_prom / 3))
+    en_pts = pts_inicio <= dias_transcurridos <= pts_fin
+
+    dias_faltantes = max(0, dias_prom - dias_transcurridos)
+
+    return {
+        'semana': semana,
+        'dias_transcurridos': dias_transcurridos,
+        'dias_faltantes': dias_faltantes,
+        'en_pts': en_pts,
+        'semana_critica': (semana == e.get('semana_critica', 3))
+    }
 
 
 def _norm_v1(v):
@@ -181,14 +249,18 @@ def calcular_v3(individuo, base):
 
 # ── FITNESS ─────────────────────────────────────────────────────────────────────
 
-def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None):
-   
+def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None, modo='tradicional'):
+
     if individuo.num_nidos() == 0:
         individuo.fitness = 0.0
         individuo.v1 = individuo.v2 = individuo.v3 = 0.0
         individuo.v4 = 0.0
         return 0.0
 
+    if modo == 'cientifico':
+        return calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos)
+
+    # Modo tradicional (default): usa pesos arbitrarios
     v1_raw = calcular_v1(individuo, base, nidos_previos)
     v2     = calcular_v2(individuo, base, nidos_previos)
     v3     = calcular_v3(individuo, base)
@@ -204,7 +276,186 @@ def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None):
     return individuo.fitness
 
 
-def evaluar_poblacion(poblacion, gestor, base, corral, nidos_previos=None):
+def evaluar_poblacion(poblacion, gestor, base, corral, nidos_previos=None, modo='tradicional'):
     for ind in poblacion:
-        calcular_fitness(ind, gestor, base, corral, nidos_previos)
+        calcular_fitness(ind, gestor, base, corral, nidos_previos, modo=modo)
     return poblacion
+
+
+# ── FUNCIONES CIENTÍFICAS (Coeficientes de Literatura) ──────────────────────────
+# Basadas en compilación de papers: Lepidochelys olivacea eclosión factors
+# Fuentes: Springer Nature, MTN, ResearchGate, SciELO
+# Ver: scratchpad/tortuga_datos_cuantitativos.md
+
+def calcular_efecto_profundidad_cientifico(profundidad_cm, prof_opt_cm):
+    """
+    Penalidad por desviación de profundidad óptima.
+    Basado en: ±5cm = -5% éxito, ±10cm = -15% éxito
+
+    Args:
+        profundidad_cm: profundidad del nido en cm
+        prof_opt_cm: profundidad óptima de la especie (profundidad_siembra.csv)
+
+    Returns:
+        float [0.0, 1.0]: factor de penalidad (1.0 = sin penalidad, 0.0 = máxima)
+    """
+    desviacion = abs(profundidad_cm - prof_opt_cm)
+
+    # Modelo lineal: cada cm de desviación = ~1% reducción
+    # ±5cm → 5% reducción, ±10cm → 10-15% reducción
+    # Usar escala conservadora: -0.01 por cm
+    penalidad = min(desviacion * 0.01, 0.50)  # Cap a 50% máximo
+    return max(0.0, 1.0 - penalidad)
+
+
+def calcular_efecto_separacion_cientifico(nidos, base):
+    """
+    Factor de separación: proporción de nidos cuyo vecino más cercano de la
+    misma especie respeta la separación mínima documentada.
+
+    La separación sale de separacion_minima.csv por especie (NOM-162-SEMARNAT-2012):
+    golfina 100 cm, prieta 120 cm, laúd 150 cm.
+
+    Args:
+        nidos: lista de genes con (x, y) en cm
+        base: base de conocimiento por especie
+
+    Returns:
+        float [0.0, 1.0]: 1.0 = ningún nido invade la separación de otro
+    """
+    if len(nidos) <= 1:
+        return 1.0
+
+    por_esp = {}
+    for n in nidos:
+        por_esp.setdefault(n.especie, []).append(n)
+
+    violaciones = 0
+    for esp, gs in por_esp.items():
+        if len(gs) <= 1:
+            continue
+        sep_min = base[esp]['sep_min']
+        xs = np.array([g.x for g in gs])
+        ys = np.array([g.y for g in gs])
+        dist_sq = (xs[:, None] - xs[None, :])**2 + (ys[:, None] - ys[None, :])**2
+        np.fill_diagonal(dist_sq, np.inf)
+        violaciones += int((dist_sq.min(axis=1) < sep_min**2).sum())
+
+    return 1.0 - violaciones / len(nidos)
+
+
+# NOTA: aquí existía calcular_efecto_densidad_cientifico(), eliminada el
+# 2026-09-06. Usaba un umbral de 25 nidos/m² que no proviene de ninguna fuente:
+# la revisión de literatura concluyó que no hay densidad máxima segura
+# documentada para corrales de incubación. Además el término era inerte —
+# devolvía 1.0 incluso a 3.5x la capacidad máxima del corral (400 nidos en
+# 1400 m² = 0.29 nidos/m²), así que sólo sumaba una constante al fitness.
+
+
+def _previos_lista(nidos_previos):
+    """Normaliza nidos_previos (lista de dicts o caché NumPy) a lista de dicts."""
+    if not nidos_previos:
+        return []
+    if isinstance(nidos_previos, dict) and "__cache__" in nidos_previos:
+        salida = []
+        for esp, p in nidos_previos.items():
+            if esp == "__cache__":
+                continue
+            salida.extend({'x': float(x), 'y': float(y), 'especie': esp}
+                          for x, y in zip(p[0], p[1]))
+        return salida
+    return list(nidos_previos)
+
+
+def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
+    """
+    Fracción de nidos que caen dentro del tramo inicial de la secuencia de
+    llenado de su zona. 1.0 = el corral se llenó en orden, sin huecos.
+
+    NO es un criterio biológico: mide si la distribución se puede sembrar
+    siguiendo la serpentina en vez de ir buscando casillas sueltas. Por eso
+    entra al fitness sólo como desempate (ver _EPS_ORDEN).
+    """
+    genes = individuo.genes
+    if not genes:
+        return 1.0
+
+    por_esp = {}
+    for g in genes:
+        por_esp.setdefault(g.especie, []).append(g)
+
+    previos = _previos_lista(nidos_previos)
+    en_orden = 0
+
+    for esp, gs in por_esp.items():
+        slots = gestor.slots_ordenados(f"zona_{esp}", base[esp]['sep_min'], previos)
+        prefijo = {(round(x, 1), round(y, 1)) for x, y in slots[:len(gs)]}
+        en_orden += sum(1 for g in gs
+                        if (round(g.x, 1), round(g.y, 1)) in prefijo)
+
+    return en_orden / len(genes)
+
+
+# Peso del término operativo. NO es un coeficiente biológico: sólo hace que el
+# orden de llenado desempate entre distribuciones biológicamente equivalentes.
+# Al ser 0.01, ninguna ganancia de orden puede compensar una diferencia
+# biológica mayor a ese margen (escalarización lexicográfica).
+_EPS_ORDEN = 0.01
+
+
+def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=None):
+    """
+    Fitness basado en parámetros documentados, más un desempate operativo.
+
+        biológico = V1_norm × (efecto_prof + efecto_sep) / 2
+        fitness   = (biológico + _EPS_ORDEN × orden) / (1 + _EPS_ORDEN)
+
+    Componentes:
+      - V1: tasa de eclosión estimada (tasa_eclosion.csv)
+      - efecto_prof: desviación respecto a la profundidad óptima de la especie
+        (profundidad_siembra.csv, NOM-162-SEMARNAT-2012)
+      - efecto_sep: separación mínima por especie (separacion_minima.csv)
+      - orden: llenado secuencial, criterio operativo, no biológico
+
+    Advertencia sobre el alcance real: con las dimensiones documentadas del
+    corral y la rejilla basada en sep_min, `efecto_sep` vale 1.0 en la práctica
+    (la rejilla ya garantiza la separación). El único factor que varía es
+    `efecto_prof`. No presentar esto como una función multi-factor sin aclararlo.
+
+    Returns:
+        float [0.0, 1.0]
+    """
+    if individuo.num_nidos() == 0:
+        individuo.fitness = 0.0
+        individuo.v1 = individuo.v2 = individuo.v3 = individuo.v4 = 0.0
+        return 0.0
+
+    # V1: tasa de eclosión (sin cambios)
+    v1_raw = calcular_v1(individuo, base, nidos_previos)
+    v1_norm = _norm_v1(v1_raw)
+
+    # Efecto profundidad: promedio de factor por cada nido
+    efecto_prof = np.mean([
+        calcular_efecto_profundidad_cientifico(g.prof, base[g.especie]['prof_opt'])
+        for g in individuo.genes
+    ]) if individuo.genes else 1.0
+
+    # Efecto separación: separación mínima documentada por especie
+    efecto_sep = calcular_efecto_separacion_cientifico(individuo.genes, base)
+
+    # Combinar factores: V1 penalizada por profundidad y separación
+    factor_combinado = (efecto_prof + efecto_sep) / 2.0
+    biologico = float(np.clip(v1_norm * factor_combinado, 0.0, 1.0))
+
+    # El orden de llenado sólo desempata; nunca desplaza al criterio biológico
+    orden = calcular_orden_operativo(individuo, gestor, base, nidos_previos)
+    fitness_final = (biologico + _EPS_ORDEN * orden) / (1.0 + _EPS_ORDEN)
+
+    individuo.fitness = round(float(fitness_final), 6)
+    individuo.v1 = v1_raw
+    individuo.v2 = 1.0 - efecto_sep  # Inversión: v2 original era violaciones
+    individuo.v3 = 1.0 - efecto_prof
+    individuo.v4 = 0.0
+    individuo.orden = orden
+
+    return individuo.fitness

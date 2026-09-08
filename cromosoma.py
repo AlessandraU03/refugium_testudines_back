@@ -14,6 +14,9 @@ def cargar_base_conocimiento(carpeta_csv):
     incubacion  = cargar_csv(os.path.join(carpeta_csv, 'dias_incubacion.csv'))
     corral_rows = cargar_csv(os.path.join(carpeta_csv, 'corral_incubacion.csv'))
 
+    pts_file = os.path.join(carpeta_csv, 'pts_termosensible.csv')
+    pts_data = cargar_csv(pts_file) if os.path.exists(pts_file) else []
+
     corral = {r['campo']: r['valor'] for r in corral_rows}
     base   = {}
 
@@ -44,17 +47,32 @@ def cargar_base_conocimiento(carpeta_csv):
         base[e]['dias_prom'] = int(f['dias_promedio'])
         base[e]['dias_max']  = int(f['dias_maximo'])
 
+    for f in pts_data:
+        e = f['especie']
+        if e in base:
+            base[e]['pts_inicio_dia']  = int(f['pts_inicio_dia'])
+            base[e]['pts_fin_dia']     = int(f['pts_fin_dia'])
+            base[e]['semana_critica']  = int(f['semana_critica'])
+            base[e]['pivote_temp']     = float(f['pivote_temp_c'])
+            base[e]['s_parameter']     = float(f['s_parameter'])
+
     return base, corral
 
 
 class Gen:
     """Un nido dentro del corral."""
-    def __init__(self, id_nido, especie, x, y, prof):
+    def __init__(self, id_nido, especie, x, y, prof, num_huevas=None, orden_incubacion=None):
         self.id_nido = id_nido
         self.especie = especie
         self.x    = round(x,    1)
         self.y    = round(y,    1)
         self.prof = round(prof, 1)
+
+        self.num_huevas = num_huevas or 0
+        self.orden_incubacion = orden_incubacion or 0
+        self.fecha_siembra = None
+        self.semana_incubacion = None
+        self.estado = "incubando"  # incubando, eclosionado, muerto
 
     def zona_correcta(self):
         return f"zona_{self.especie}"
@@ -67,7 +85,12 @@ class Gen:
                 lim['ymin'] <= self.y <= lim['ymax'])
 
     def copia(self):
-        return Gen(self.id_nido, self.especie, self.x, self.y, self.prof)
+        gen_copia = Gen(self.id_nido, self.especie, self.x, self.y, self.prof,
+                       num_huevas=self.num_huevas, orden_incubacion=self.orden_incubacion)
+        gen_copia.fecha_siembra = self.fecha_siembra
+        gen_copia.semana_incubacion = self.semana_incubacion
+        gen_copia.estado = self.estado
+        return gen_copia
 
     def __repr__(self):
         return (f"Gen(id={self.id_nido}, esp={self.especie}, "
@@ -79,6 +102,7 @@ class Individuo:
         self.genes   = genes
         self.fitness = None
         self.v1 = self.v2 = self.v3 = self.v4 = None
+        self.orden = None
 
     def num_nidos(self):
         return len(self.genes)
@@ -87,6 +111,7 @@ class Individuo:
         ind = Individuo([g.copia() for g in self.genes])
         ind.fitness = self.fitness
         ind.v1, ind.v2, ind.v3, ind.v4 = self.v1, self.v2, self.v3, self.v4
+        ind.orden = self.orden
         return ind
 
     def __repr__(self):
@@ -111,6 +136,7 @@ class GestorZonas:
         self.total    = n_golfina + n_prieta + n_laud
         self.base     = base
         self.limites  = self._calcular_limites()
+        self._cache_slots = {}
 
     def _calcular_limites(self):
         if self.total == 0:
@@ -145,6 +171,54 @@ class GestorZonas:
 
     def limites_zona(self, nombre_zona):
         return self.limites.get(nombre_zona)
+
+    def slots_ordenados(self, nombre_zona, sep_min=100.0, nidos_ocupados=None):
+        """
+        Casillas libres de la rejilla en orden de llenado, en serpentina:
+        la hilera 1 se recorre de ida y la 2 de vuelta, para que el personal
+        avance sin regresar al inicio de cada hilera.
+
+        Es un criterio operativo, no biológico. La rejilla usa sep_min de la
+        especie como paso, así que cualquier casilla ya respeta la separación.
+        """
+        lim = self.limites_zona(nombre_zona)
+        if not lim:
+            return []
+
+        especie = lim['especie']
+        prev = [(oc['x'], oc['y']) for oc in (nidos_ocupados or [])
+                if oc.get('especie') == especie]
+
+        # La rejilla no cambia durante una corrida y se consulta miles de veces
+        # (una por evaluación y una por mutación), así que se memoriza.
+        clave = (nombre_zona, sep_min, len(prev),
+                 round(sum(p[0] for p in prev), 1),
+                 round(sum(p[1] for p in prev), 1))
+        if clave in self._cache_slots:
+            return self._cache_slots[clave]
+
+        ancho_z = lim['xmax'] - lim['xmin']
+        alto_z  = lim['ymax'] - lim['ymin']
+
+        cols  = max(1, int(ancho_z / sep_min))
+        filas = max(1, int(alto_z  / sep_min))
+        paso_x = ancho_z / cols
+        paso_y = alto_z  / filas
+
+        slots = []
+        for f in range(filas):
+            y = round(lim['ymin'] + paso_y * (f + 0.5), 1)
+            recorrido = range(cols) if f % 2 == 0 else range(cols - 1, -1, -1)
+            for c in recorrido:
+                slots.append((round(lim['xmin'] + paso_x * (c + 0.5), 1), y))
+
+        if prev:
+            slots = [(x, y) for (x, y) in slots
+                     if all(math.hypot(x - ox, y - oy) >= sep_min
+                            for ox, oy in prev)]
+
+        self._cache_slots[clave] = slots
+        return slots
 
     def posiciones_cuadricula(self, nombre_zona, n_nidos, sep_min=100.0,
                               nidos_ocupados=None):

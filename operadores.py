@@ -133,6 +133,59 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
             all_xs[idx] = new_x
             all_ys[idx] = new_y
 
+    # ── Mutación 3: Orden de llenado ─────────────────────────────────────────
+    # La mutación de posición sólo actúa sobre nidos que violan sep_min, así que
+    # sin esto el AG nunca reordena una distribución válida pero dispersa.
+    # Jala nidos fuera de la secuencia hacia las casillas libres del tramo inicial.
+    por_esp = {}
+    for gen in genes:
+        por_esp.setdefault(gen.especie, []).append(gen)
+
+    # Se aplica siempre, no con prob_mut: es una reparación, no una perturbación.
+    # Sólo mueve nidos a casillas de la misma rejilla, que son biológicamente
+    # equivalentes (mismo sep_min, misma zona), así que no sacrifica diversidad útil.
+    for esp, gs in por_esp.items():
+        sep_min = base[esp]['sep_min']
+        xs_prev, ys_prev = previos_esp.get(esp, (np.array([]), np.array([])))
+        previos_dicts = [{'x': float(px), 'y': float(py), 'especie': esp}
+                         for px, py in zip(xs_prev, ys_prev)]
+
+        slots = gestor.slots_ordenados(f"zona_{esp}", sep_min, previos_dicts)
+        if not slots:
+            continue
+
+        # slots_ordenados ya devuelve coordenadas redondeadas a 1 decimal, y Gen
+        # redondea las suyas al construirse: basta redondear una vez por nido.
+        prefijo = slots[:len(gs)]
+        claves_prefijo = set(prefijo)
+        claves_gs = [(round(g.x, 1), round(g.y, 1)) for g in gs]
+        ocupadas = set(claves_gs)
+
+        libres = [s for s in prefijo if s not in ocupadas]
+        fuera  = [g for g, k in zip(gs, claves_gs) if k not in claves_prefijo]
+
+        # Las casillas del prefijo ya distan sep_min entre sí y de los nidos
+        # previos, así que sólo pueden chocar con nidos aún fuera de secuencia.
+        if not libres or not fuera:
+            continue
+
+        pendientes = list(libres)
+        fx = np.array([g.x for g in fuera], dtype=float)
+        fy = np.array([g.y for g in fuera], dtype=float)
+        sep_sq = (sep_min - 0.05) ** 2
+
+        for i, gen in enumerate(fuera):
+            if not pendientes:
+                break
+            for k, destino in enumerate(pendientes):
+                d2 = (fx - destino[0])**2 + (fy - destino[1])**2
+                d2[i] = np.inf   # no compararse consigo mismo
+                if d2.min() >= sep_sq:
+                    gen.x, gen.y = destino[0], destino[1]
+                    fx[i], fy[i] = gen.x, gen.y
+                    pendientes.pop(k)
+                    break
+
     return ind
 
 

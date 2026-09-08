@@ -47,7 +47,8 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
         _TAM_POB, nidos_entrada, gestor, base, previos_raw)
 
     # ── 2. Evaluación inicial ──────────────────────────────────────────────────
-    evaluar_poblacion(poblacion, gestor, base, corral, previos_cache)
+    # Usar fitness científico (coeficientes de literatura, no pesos inventados)
+    evaluar_poblacion(poblacion, gestor, base, corral, previos_cache, modo='cientifico')
     mejor_global = max(poblacion, key=lambda i: i.fitness).copia()
     _registrar(h, poblacion, mejor_global)
 
@@ -72,7 +73,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
             h2 = mutacion_combinada(h2, _PROB_MUT, base, gestor, previos_cache)
             descendencia.extend([h1, h2])
 
-        evaluar_poblacion(descendencia, gestor, base, corral, previos_cache)
+        evaluar_poblacion(descendencia, gestor, base, corral, previos_cache, modo='cientifico')
         poblacion = poda_elitismo(poblacion, descendencia, _TAM_POB, n_elite=2)
 
         mejor_actual = max(poblacion, key=lambda i: i.fitness)

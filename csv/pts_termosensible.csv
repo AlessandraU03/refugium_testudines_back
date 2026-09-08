@@ -1,0 +1,4 @@
+especie,pts_inicio_dia,pts_fin_dia,semana_critica,descripcion,pivote_temp_c,s_parameter
+golfina,17,33,3,CONVENCION: tercio medio de dias_promedio (50). No es un valor medido en campo,29.95,-0.6301
+prieta,20,40,3,CONVENCION: tercio medio de dias_promedio (60). No es un valor medido en campo,29.95,-0.6301
+laud,22,43,4,CONVENCION: tercio medio de dias_promedio (65). No es un valor medido en campo,29.95,-0.6301
