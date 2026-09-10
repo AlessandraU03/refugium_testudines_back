@@ -187,6 +187,7 @@ def ejecutar():
             'v2': round(ind.v2, 4),
             'v3': round(ind.v3, 4),
             'orden': round(ind.orden, 4) if ind.orden is not None else None,
+            'indice_eclosion': getattr(ind, 'indice_eclosion', None),
             'genes': [{
                 'id':               g.id_nido,
                 'especie':          g.especie,
@@ -500,3 +501,101 @@ def handle_exception(e):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
+
+@app.route('/api/prediccion')
+def prediccion_termica():
+    """Crias esperadas y proporcion sexual para un escenario de manejo.
+
+    Parametros de consulta (todos opcionales):
+        mes        1-12, mes de siembra (por omision 9, el pico)
+        nidos      numero de nidos a alojar (por omision la capacidad segura)
+        huevos     tamano de nidada (por omision el de referencia)
+        area_m2    superficie disponible (por omision la del corral 1)
+
+    Compara el mismo escenario con y sin malla sombra, que es la intervencion
+    barata documentada por Hill et al. (2015).
+    """
+    import termico
+    from cromosoma import cargar_csv
+
+    mes    = int(request.args.get('mes', 9))
+    huevos = float(request.args.get('huevos', termico.HUEVOS_REFERENCIA))
+
+    corral_rows = cargar_csv(os.path.join(CSV_DIR, 'corral_incubacion.csv'))
+    corral = {r['campo']: r['valor'] for r in corral_rows}
+    area_m2 = float(request.args.get('area_m2', corral.get('area_m2', 240)))
+
+    capacidad = int(area_m2)          # 1 nido/m2, densidad maxima documentada
+    nidos = int(request.args.get('nidos', capacidad))
+
+    densidad = nidos / area_m2 if area_m2 > 0 else 0.0
+    tasa_base = 0.75                  # golfina, tasa_eclosion.csv
+
+    escenarios = {}
+    for etiqueta, sombra in (('sin_sombra', False), ('con_sombra', True)):
+        p = termico.predecir_nido(mes=mes, n_huevos=huevos,
+                                  tasa_base_especie=tasa_base,
+                                  densidad_m2=densidad, sombra=sombra)
+        escenarios[etiqueta] = {
+            'tasa_eclosion':   p['tasa_eclosion'],
+            'crias_por_nido':  p['crias_esperadas'],
+            'crias_totales':   round(p['crias_esperadas'] * nidos, 0),
+            'pct_hembras':     p['proporcion_sexual']['pct_hembras'],
+            'pct_machos':      p['proporcion_sexual']['pct_machos'],
+            'temp_pts_c':      p['proporcion_sexual']['temp_pts_c'],
+            'temp_final_c':    p['riesgo_termico']['temp_ultimo_tercio_c'],
+            'margen_letal_c':  p['riesgo_termico']['margen_c'],
+            'en_riesgo':       p['riesgo_termico']['en_riesgo'],
+        }
+
+    return jsonify({
+        'mes': mes,
+        'nidos': nidos,
+        'area_m2': area_m2,
+        'densidad_nidos_m2': round(densidad, 2),
+        'capacidad_a_norma': capacidad,
+        'huevos_por_nido': huevos,
+        'escenarios': escenarios,
+        'advertencia_temp_base': termico.TEMP_BASE_FUENTE,
+        'fuentes': {
+            'densidad_eclosion': 'Honarvar, O\'Connor y Spotila (2008), Oecologia 157:221-230',
+            'sombra':            'Hill et al. (2015), PLOS ONE 10(6):e0129528',
+            'calor_metabolico':  'Carbonell Ellgutter et al. (2025), Ecol Evol 15(7):e71750',
+            'sexo':              'Sandoval, Gomez-Munoz y Porta-Gandara (2020), Inv. y Ciencia 28(80):14-21',
+        },
+    })
+
+
+@app.route('/api/recomendacion')
+def recomendacion_capacidad():
+    """Cuantos nidos conviene alojar y que cuesta rebasarlo.
+
+    Parametros: nidos (obligatorio), corral (id, por omision 1), huevos,
+    supervivencia_fuera (fraccion de crias que se salvan de los nidos que no
+    entren; por omision 0.0, el peor caso).
+    """
+    import capacidad as cap
+    from cromosoma import cargar_csv
+
+    n = request.args.get('nidos', type=int)
+    if not n or n <= 0:
+        return jsonify({'error': 'Falta el parametro nidos (entero positivo).'}), 400
+
+    corral_id = request.args.get('corral', '1')
+    filas = cargar_csv(os.path.join(CSV_DIR, 'corrales.csv'))
+    fila = next((f for f in filas if f['corral_id'] == str(corral_id)), None)
+    if fila is None:
+        return jsonify({'error': 'No existe el corral %s.' % corral_id}), 404
+
+    r = cap.recomendacion(
+        float(fila['largo_m']), float(fila['ancho_m']), n,
+        huevos_por_nido=request.args.get('huevos', type=float),
+        supervivencia_fuera=request.args.get('supervivencia_fuera',
+                                             default=0.0, type=float),
+    )
+    r['corral'] = {'id': fila['corral_id'], 'nombre': fila['nombre'],
+                   'largo_m': float(fila['largo_m']),
+                   'ancho_m': float(fila['ancho_m']),
+                   'fuente': fila.get('fuente', '')}
+    return jsonify(r)

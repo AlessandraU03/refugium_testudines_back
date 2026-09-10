@@ -150,7 +150,9 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         previos_dicts = [{'x': float(px), 'y': float(py), 'especie': esp}
                          for px, py in zip(xs_prev, ys_prev)]
 
-        slots = gestor.slots_ordenados(f"zona_{esp}", sep_min, previos_dicts)
+        n_req = len(gs) + len(previos_dicts)
+        slots = gestor.slots_ordenados(f"zona_{esp}", sep_min, previos_dicts,
+                                       n_requeridos=n_req)
         if not slots:
             continue
 

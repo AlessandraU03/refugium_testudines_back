@@ -136,6 +136,7 @@ class Individuo:
         self.fitness = None
         self.v1 = self.v2 = self.v3 = None
         self.orden = None
+        self.indice_eclosion = None
 
     def num_nidos(self):
         return len(self.genes)
@@ -145,11 +146,40 @@ class Individuo:
         ind.fitness = self.fitness
         ind.v1, ind.v2, ind.v3 = self.v1, self.v2, self.v3
         ind.orden = self.orden
+        ind.indice_eclosion = self.indice_eclosion
         return ind
 
     def __repr__(self):
         f_str = f"{self.fitness:.4f}" if self.fitness is not None else "?"
         return f"Individuo(n={self.num_nidos()} fit={f_str})"
+
+
+def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
+    """Mayor separacion que permite acomodar n_nidos en una rejilla regular.
+
+    Busca el paso `s` mas grande tal que floor(ancho/s) * floor(alto/s) >= n.
+    El numero de casillas crece al reducir el paso, asi que la condicion es
+    monotona y se puede resolver por biseccion.
+
+    Devolver la separacion MAS GRANDE posible importa: cada centimetro que se
+    conserva es eclosion que no se pierde.
+    """
+    if n_nidos <= 0:
+        return float(min(ancho_cm, alto_cm))
+
+    def caben(s):
+        return max(1, int(ancho_cm / s)) * max(1, int(alto_cm / s)) >= n_nidos
+
+    lo, hi = 1.0, float(max(ancho_cm, alto_cm))
+    if caben(hi):
+        return hi
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if caben(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
 class GestorZonas:
@@ -170,6 +200,7 @@ class GestorZonas:
         self.base     = base
         self.limites  = self._calcular_limites()
         self._cache_slots = {}
+        self.separacion_efectiva = {}
 
     def _calcular_limites(self):
         if self.total == 0:
@@ -205,7 +236,8 @@ class GestorZonas:
     def limites_zona(self, nombre_zona):
         return self.limites.get(nombre_zona)
 
-    def slots_ordenados(self, nombre_zona, sep_min=100.0, nidos_ocupados=None):
+    def slots_ordenados(self, nombre_zona, sep_min=100.0, nidos_ocupados=None,
+                        n_requeridos=None):
         """
         Casillas libres de la rejilla en orden de llenado, en serpentina:
         la hilera 1 se recorre de ida y la 2 de vuelta, para que el personal
@@ -224,7 +256,7 @@ class GestorZonas:
 
         # La rejilla no cambia durante una corrida y se consulta miles de veces
         # (una por evaluación y una por mutación), así que se memoriza.
-        clave = (nombre_zona, sep_min, len(prev),
+        clave = (nombre_zona, sep_min, n_requeridos, len(prev),
                  round(sum(p[0] for p in prev), 1),
                  round(sum(p[1] for p in prev), 1))
         if clave in self._cache_slots:
@@ -233,8 +265,24 @@ class GestorZonas:
         ancho_z = lim['xmax'] - lim['xmin']
         alto_z  = lim['ymax'] - lim['ymin']
 
-        cols  = max(1, int(ancho_z / sep_min))
-        filas = max(1, int(alto_z  / sep_min))
+        paso = float(sep_min)
+        cols  = max(1, int(ancho_z / paso))
+        filas = max(1, int(alto_z  / paso))
+
+        # Si a la separacion documentada no salen suficientes casillas, se
+        # aprieta la rejilla en vez de encimar nidos. Antes los sobrantes
+        # terminaban apilados en coordenadas ya ocupadas: el resultado se veia
+        # valido pero pedia enterrar dos nidadas en el mismo hoyo.
+        #
+        # Apretar tiene un costo biologico y NO se aplica en silencio: la
+        # separacion realmente usada queda en self.separacion_efectiva para que
+        # quien consuma la rejilla lo reporte.
+        if n_requeridos and cols * filas < n_requeridos:
+            paso = separacion_para_alojar(ancho_z, alto_z, n_requeridos)
+            cols  = max(1, int(ancho_z / paso))
+            filas = max(1, int(alto_z  / paso))
+
+        self.separacion_efectiva[nombre_zona] = round(paso, 1)
         paso_x = ancho_z / cols
         paso_y = alto_z  / filas
 
@@ -247,7 +295,7 @@ class GestorZonas:
 
         if prev:
             slots = [(x, y) for (x, y) in slots
-                     if all(math.hypot(x - ox, y - oy) >= sep_min
+                     if all(math.hypot(x - ox, y - oy) >= paso
                             for ox, oy in prev)]
 
         self._cache_slots[clave] = slots

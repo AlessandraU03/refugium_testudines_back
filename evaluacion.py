@@ -386,7 +386,9 @@ def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
     en_orden = 0
 
     for esp, gs in por_esp.items():
-        slots = gestor.slots_ordenados(f"zona_{esp}", base[esp]['sep_min'], previos)
+        n_req = len(gs) + sum(1 for q in previos if q.get('especie') == esp)
+        slots = gestor.slots_ordenados(f"zona_{esp}", base[esp]['sep_min'],
+                                       previos, n_requeridos=n_req)
         prefijo = {(round(x, 1), round(y, 1)) for x, y in slots[:len(gs)]}
         en_orden += sum(1 for g in gs
                         if (round(g.x, 1), round(g.y, 1)) in prefijo)
@@ -399,6 +401,46 @@ def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
 # Al ser 0.01, ninguna ganancia de orden puede compensar una diferencia
 # biológica mayor a ese margen (escalarización lexicográfica).
 _EPS_ORDEN = 0.01
+
+# Regiones sombreadas del corral, en centímetros: [{'xmin','ymin','xmax','ymax'}].
+# Vacío = corral sin sombra, que es el estado actual de Puerto Arista. Se llena
+# para evaluar la intervención de malla sombra.
+SOMBRAS = []
+
+
+def _indice_eclosion(individuo, base, nidos_previos=None):
+    """Fracción de crías que sobrevive al hacinamiento de esta colocación.
+
+    Devuelve 1.0 cuando ningún nido supera la densidad de referencia y baja
+    conforme los nidos se apiñan, según la curva de Honarvar et al. (2008).
+    Los nidos ya sembrados en jornadas anteriores cuentan como vecinos: un
+    nido nuevo no puede ignorar lo que ya está enterrado a su lado.
+    """
+    import termico
+
+    genes = list(individuo.genes)
+    if not genes:
+        return 1.0
+
+    previos = _previos_lista(nidos_previos)
+    vecinos = genes + [
+        type('N', (), {'x': float(p['x']), 'y': float(p['y']),
+                       'especie': p.get('especie', 'golfina'),
+                       'num_huevas': p.get('num_huevas', 0)})()
+        for p in previos
+    ]
+
+    tasas = {e: base[e].get('tasa_eclosion', 0.75) for e in base}
+    mes = None
+    if genes and getattr(genes[0], 'fecha_siembra', None):
+        try:
+            mes = datetime.strptime(genes[0].fecha_siembra, '%Y-%m-%d').month
+        except (ValueError, TypeError):
+            mes = None
+
+    r = termico.evaluar_colocacion(vecinos, tasas, mes=mes,
+                                   rectangulos_sombra=SOMBRAS)
+    return r['indice_eclosion']
 
 
 def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=None):
@@ -428,9 +470,21 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
         individuo.v1 = individuo.v2 = individuo.v3 = 0.0
         return 0.0
 
-    # V1: tasa de eclosión (sin cambios)
+    # V1: rendimiento de eclosión de la colocación concreta.
+    #
+    # Antes esto era la tasa de la especie leída del CSV, un valor constante
+    # que no dependía de dónde quedaran los nidos: el AG no tenía gradiente
+    # sobre el que trabajar. Ahora se calcula el índice de eclosión del
+    # modelo térmico, que aplica la curva densidad-eclosión medida por
+    # Honarvar et al. (2008) a la vecindad real de cada nido.
+    #
+    # Mientras la colocación respete la separación documentada, la densidad
+    # local queda en 1 nido/m², el factor vale 1.0 y el índice es 1.0: por
+    # debajo de la norma, mover un nido efectivamente no cambia nada. El
+    # término solo empieza a discriminar cuando el corral se satura y hay que
+    # apretar los nidos, que es la situación real durante 97 días al año.
     v1_raw = calcular_v1(individuo, base, nidos_previos)
-    v1_norm = _norm_v1(v1_raw)
+    v1_norm = _indice_eclosion(individuo, base, nidos_previos)
 
     # Efecto profundidad: promedio de factor por cada nido
     efecto_prof = np.mean([
@@ -450,6 +504,7 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
     fitness_final = (biologico + _EPS_ORDEN * orden) / (1.0 + _EPS_ORDEN)
 
     individuo.fitness = round(float(fitness_final), 6)
+    individuo.indice_eclosion = round(float(v1_norm), 4)
     individuo.v1 = v1_raw
     individuo.v2 = 1.0 - efecto_sep  # Inversión: v2 original era violaciones
     individuo.v3 = 1.0 - efecto_prof
