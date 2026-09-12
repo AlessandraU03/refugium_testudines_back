@@ -84,11 +84,26 @@ LIMITE_LETAL_C           = 36.0    # tolerancia termica del embrion
 #     pueden sumarse tal cual a una temperatura observada. Ver temperatura_pts.
 SALTO_METABOLICO_FINAL_C = CALOR_METABOLICO_FINAL_C - CALOR_METABOLICO_PTS_C
 
-#     Tamano de nidada de referencia. Honarvar et al. (2008) reportan un
-#     promedio de 95 +- 11 huevos en Playa La Flor y 100 en Playa Nancite.
-#     Sustituir por el valor de fecundidad de Puerto Arista reportado en
-#     Corzo-Dominguez y Romero-Berny (2025) cuando se capture del articulo.
-HUEVOS_REFERENCIA = 100.0
+#     Tamano de nidada de referencia: 91.4 huevos, medido EN EL SITIO.
+#
+#     Corzo-Dominguez y Romero-Berny (2025) reportan el promedio de huevos por
+#     nido mes a mes para Puerto Arista durante 2022 (Fig. 4B). Ponderado por
+#     el numero de nidos de cada mes (Fig. 3A) da 91.4 huevos por nido.
+#     Sustituye al valor anterior de 100, que venia de Playa Nancite, Costa
+#     Rica (Honarvar et al. 2008). La serie mensual completa vive en
+#     csv/fecundidad_mensual.csv y es preferible usarla: la nidada varia de 77
+#     huevos en junio a 93 en enero y agosto.
+#
+#     NOTA SOBRE UNA INCONSISTENCIA DE LA FUENTE. En la Fig. 4A el total de
+#     huevos de agosto aparece como 19,722, pero los 1,015 nidos de ese mes
+#     (Fig. 3A) por sus 93 huevos/nido (Fig. 4B) dan 94,395. Los otros once
+#     meses cuadran dentro del 1 %. Ademas, sumando los doce meses con el
+#     valor recalculado se obtienen 313,497 huevos, que coincide con el total
+#     por zonas que el propio articulo reporta en la pagina 1277 (209,099 +
+#     93,602 + 10,877 = 313,578) con 0.03 % de diferencia; con el 19,722
+#     impreso la suma no cuadra. Se toma por tanto el valor recalculado y se
+#     deja constancia aqui.
+HUEVOS_REFERENCIA = 91.4
 
 #     Efecto de la distancia al muro de concreto (referencia: 50 cm del muro).
 #     El corral de Puerto Arista no es de concreto, asi que este termino queda
@@ -135,6 +150,35 @@ TEMP_BASE_MES_C = {
     7: 33.2, 8: 32.8, 9: 31.9, 10: 30.1, 11: 27.2, 12: 25.0,
 }
 TEMP_BASE_FUENTE = "PENDIENTE DE VERIFICAR - sustituir por medicion en sitio"
+
+def fecundidad_mensual(carpeta_csv=None):
+    """Huevos por nido de cada mes, medidos en Puerto Arista durante 2022.
+
+    Devuelve {mes: huevos_por_nido}. Los meses sin nidos registrados (mayo)
+    quedan fuera del diccionario, para que el llamador caiga en el valor de
+    referencia en vez de usar un cero.
+    """
+    import csv as _csv
+    import os as _os
+    if carpeta_csv is None:
+        carpeta_csv = _os.path.join(_os.path.dirname(__file__), 'csv')
+    ruta = _os.path.join(carpeta_csv, 'fecundidad_mensual.csv')
+    if not _os.path.exists(ruta):
+        return {}
+    with open(ruta, newline='', encoding='utf-8') as f:
+        filas = list(_csv.DictReader(f))
+    salida = {}
+    for r in filas:
+        h = float(r['huevos_por_nido'])
+        if h > 0:
+            salida[int(r['mes'])] = h
+    return salida
+
+
+def huevos_del_mes(mes, carpeta_csv=None):
+    """Huevos por nido del mes dado; HUEVOS_REFERENCIA si no hay dato."""
+    return fecundidad_mensual(carpeta_csv).get(int(mes), HUEVOS_REFERENCIA)
+
 
 # Lado de la vecindad usada para medir densidad local, en centimetros.
 # Corresponde a la parcela de 1 m x 1 m de Honarvar et al. (2008).

@@ -535,7 +535,9 @@ def prediccion_termica():
     from cromosoma import cargar_csv
 
     mes    = int(request.args.get('mes', 9))
-    huevos = float(request.args.get('huevos', termico.HUEVOS_REFERENCIA))
+    # Por omision se usa la nidada medida en Puerto Arista para ese mes
+    # (Corzo-Dominguez y Romero-Berny 2025), no un promedio anual.
+    huevos = float(request.args.get('huevos', termico.huevos_del_mes(mes)))
 
     corral_rows = cargar_csv(os.path.join(CSV_DIR, 'corral_incubacion.csv'))
     corral = {r['campo']: r['valor'] for r in corral_rows}
@@ -603,9 +605,15 @@ def recomendacion_capacidad():
     if fila is None:
         return jsonify({'error': 'No existe el corral %s.' % corral_id}), 404
 
+    import termico
+    mes_rec = request.args.get('mes', default=9, type=int)
+    huevos_rec = request.args.get('huevos', type=float)
+    if huevos_rec is None:
+        huevos_rec = termico.huevos_del_mes(mes_rec)
+
     r = cap.recomendacion(
         float(fila['largo_m']), float(fila['ancho_m']), n,
-        huevos_por_nido=request.args.get('huevos', type=float),
+        huevos_por_nido=huevos_rec,
         supervivencia_fuera=request.args.get('supervivencia_fuera',
                                              default=0.0, type=float),
     )
