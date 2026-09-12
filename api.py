@@ -435,7 +435,59 @@ def capacidad():
 
     con_deficit = [d for d, v in serie.items() if v['deficit'] > 0]
 
+    # ------------------------------------------------------------------
+    #  Temporada en curso, con los nidos realmente sembrados
+    # ------------------------------------------------------------------
+    # La serie historica reparte los nidos de cada mes por igual entre sus
+    # dias, porque la fuente solo publica totales mensuales. Las jornadas
+    # guardadas traen la fecha exacta de cada siembra, asi que esta curva no
+    # necesita ese supuesto: es la ocupacion real del corral.
+    registro = None
+    jornadas = REGISTRO.datos.get('jornadas', [])
+    if jornadas:
+        arribos_reg = {}
+        for j in jornadas:
+            try:
+                f = datetime.strptime(j['fecha'], '%Y-%m-%d').date()
+            except (KeyError, ValueError):
+                continue
+            n = len(j.get('nidos') or [])
+            if not n:
+                n = sum(int(v) for v in (j.get('entradas') or {}).values())
+            arribos_reg[f] = arribos_reg.get(f, 0) + n
+
+        if arribos_reg:
+            serie_reg = simular_temporada(arribos_reg, cap_total, dias_inc)
+            r_reg = resumen_temporada(serie_reg, cap_total)
+            con_def_reg = [d for d, v in serie_reg.items() if v['deficit'] > 0]
+            pico_reg = r_reg['pico_ocupacion']
+            registro = {
+                'jornadas':           len(jornadas),
+                'dias_con_siembra':   len(arribos_reg),
+                'nidos_sembrados':    int(sum(arribos_reg.values())),
+                'primera_siembra':    min(arribos_reg).strftime('%Y-%m-%d'),
+                'ultima_siembra':     max(arribos_reg).strftime('%Y-%m-%d'),
+                'pico_ocupacion':     round(pico_reg),
+                'fecha_pico':         r_reg['fecha_pico'].strftime('%Y-%m-%d'),
+                'cobertura_del_pico': round(r_reg['cobertura_del_pico'], 4),
+                'deficit_maximo':     round(r_reg['deficit_maximo']),
+                'dias_con_deficit':   r_reg['dias_con_deficit'],
+                'area_faltante_m2':   round(r_reg['area_faltante_m2']),
+                'separacion_en_pico_m': round(
+                    separacion_implicita(area_total, 1.0, pico_reg), 2
+                ) if pico_reg > 0 else None,
+                'ventana_inicio':     min(con_def_reg).strftime('%Y-%m-%d') if con_def_reg else None,
+                'ventana_fin':        max(con_def_reg).strftime('%Y-%m-%d') if con_def_reg else None,
+                'serie': [{'fecha': d.strftime('%Y-%m-%d'),
+                           'ocupados': round(v['ocupados']),
+                           'deficit':  round(v['deficit'])}
+                          for d, v in serie_reg.items()],
+                'arribos': [{'fecha': d.strftime('%Y-%m-%d'), 'nidos': int(n)}
+                            for d, n in sorted(arribos_reg.items())],
+            }
+
     return jsonify({
+        'registro':              registro,
         'densidad_max_nidos_m2': DENSIDAD_MAX_NIDOS_M2,
         'dias_hasta_excavacion': DIAS_HASTA_EXCAVACION,
         'dias_incubacion':       dias_inc,
