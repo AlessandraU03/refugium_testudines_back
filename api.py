@@ -516,8 +516,6 @@ def handle_exception(e):
     }), 500
 
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
 
 
 @app.route('/api/prediccion')
@@ -616,3 +614,12 @@ def recomendacion_capacidad():
                    'ancho_m': float(fila['ancho_m']),
                    'fuente': fila.get('fuente', '')}
     return jsonify(r)
+
+
+# Arranque como script. Tiene que quedar al final del archivo: app.run()
+# bloquea, asi que cualquier @app.route() escrito debajo nunca llegaria a
+# registrarse y esa ruta responderia 404 al correr 'python api.py'.
+# Con gunicorn o con test_client no se nota, porque ahi el modulo se
+# importa y app.run() no se ejecuta.
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
