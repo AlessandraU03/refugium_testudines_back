@@ -161,7 +161,7 @@ def recomendacion(largo_m, ancho_m, n_nidos, tasa_base=0.75,
             'densidad_real_m2':   round(n_nidos / area_m2, 2) if area_m2 else 0.0,
             'separacion_real_cm': round(separacion_implicita(largo_m, ancho_m, n_nidos) * 100.0, 1),
             'costo_eclosion_pct': 0.0,
-            'mensaje': ('Caben los %d nidos respetando la separacion de %.0f cm. '
+            'mensaje': ('Caben los %d nidos respetando la separación de %.0f cm. '
                         'Quedan %d espacios libres.'
                         % (n_nidos, sep_norma_cm, holgura)),
         })
@@ -205,9 +205,9 @@ def recomendacion(largo_m, ancho_m, n_nidos, tasa_base=0.75,
             'conviene': ('apretar' if crias_apretando > crias_solo_norma
                          else 'no_apretar'),
         },
-        'mensaje': ('Se recomiendan %d nidos a %.0f cm de separacion. Alojar %d '
-                    'obliga a bajar la separacion a %.0f cm (%.2f nidos/m2) y '
-                    'cuesta %.1f%% de la eclosion de cada nido.'
+        'mensaje': ('Se recomiendan %d nidos a %.0f cm de separación. Alojar %d '
+                    'obliga a bajar la separación a %.0f cm (%.2f nidos/m²) y '
+                    'cuesta %.1f%% de la eclosión de cada nido.'
                     % (capacidad, sep_norma_cm, n_nidos, sep_real,
                        densidad_real, (1.0 - factor) * 100.0)),
     })

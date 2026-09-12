@@ -39,7 +39,8 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
         'mejor', 'promedio',
         'v1_mejor', 'v1_promedio',
         'v2_mejor', 'v2_promedio',
-        'v3_mejor', 'v3_promedio'
+        'v3_mejor', 'v3_promedio',
+        'indice_mejor', 'indice_promedio'
     ]}
 
     # ── 1. Inicialización ──────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ def _registrar(h, pob, mejor):
     v1s  = [i.v1 for i in pob if i.v1 is not None]
     v2s  = [i.v2 for i in pob if i.v2 is not None]
     v3s  = [i.v3 for i in pob if i.v3 is not None]
+    ies  = [i.indice_eclosion for i in pob if i.indice_eclosion is not None]
 
     h['mejor'].append(mejor.fitness)
     h['promedio'].append(sum(fits) / len(fits) if fits else 0)
@@ -117,3 +119,5 @@ def _registrar(h, pob, mejor):
     h['v2_promedio'].append(sum(v2s) / len(v2s) if v2s else 0)
     h['v3_mejor'].append(mejor.v3 or 0)
     h['v3_promedio'].append(sum(v3s) / len(v3s) if v3s else 0)
+    h['indice_mejor'].append(mejor.indice_eclosion if mejor.indice_eclosion is not None else 1.0)
+    h['indice_promedio'].append(sum(ies) / len(ies) if ies else 1.0)

@@ -332,10 +332,27 @@ def ejecutar():
         'mensaje': "Atención: Capacidad de incubación alta (>75%). El calor metabólico acumulado puede elevar la temperatura de la arena por encima del umbral crítico de 29.7°C, induciendo feminización de crías (sesgo de género) y afectando la viabilidad embrionaria." if pct >= 75.0 else None
     }
 
+    # Separacion realmente usada. Si al pedir mas nidos que casillas la rejilla
+    # tuvo que apretarse, aqui se ve: apretar cuesta eclosion y no debe pasar
+    # inadvertido para quien siembra.
+    sep_norma = float(BASE['golfina']['sep_min'])
+    sep_real  = gestor.separacion_efectiva.get('zona_golfina', sep_norma)
+    separacion = {
+        'norma_cm':   round(sep_norma, 1),
+        'efectiva_cm': round(sep_real, 1),
+        'comprimida': sep_real < sep_norma - 0.05,
+        'mensaje': (
+            'No cabían %d nidos a %.0f cm. La rejilla se apretó a %.0f cm: '
+            'cada nido pierde eclosión por hacinamiento.'
+            % (n_g, sep_norma, sep_real)
+        ) if sep_real < sep_norma - 0.05 else None,
+    }
+
     return jsonify({
         'historial':     historial,
         'top3':          [ser_ind(i) for i in top3],
         'mejor':         ser_ind(mejor),
+        'separacion':    separacion,
         'fechas':        fechas,
         'validacion':    validacion,
         'zonas':         zonas,
