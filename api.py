@@ -675,6 +675,58 @@ def prediccion_termica():
             'en_riesgo':       p['riesgo_termico']['en_riesgo'],
         }
 
+    # ------------------------------------------------------------------
+    #  Lo que ya esta sembrado en el corral
+    # ------------------------------------------------------------------
+    # Los escenarios de arriba responden "si meto N nidos, que pasa". Esto
+    # responde algo mas util: los nidos que YA estan enterrados, con su
+    # posicion real, su fecha de siembra y la densidad que de verdad tienen
+    # alrededor, que no es la densidad media del corral.
+    corral_actual = None
+    try:
+        hoy = datetime.today().strftime('%Y-%m-%d')
+        activos = [n for n in REGISTRO.obtener_nidos_activos(hoy, BASE)
+                   if not n.get('eclosionado', False)]
+    except Exception:
+        activos = []
+
+    if activos:
+        coords = [(float(n['x']), float(n['y'])) for n in activos]
+        dens_locales = termico.densidades_locales(coords)
+
+        por_nido = []
+        for n, dloc in zip(activos, dens_locales):
+            try:
+                mes_n = datetime.strptime(n['fecha_siembra'], '%Y-%m-%d').month
+            except (KeyError, ValueError):
+                mes_n = mes
+            huevos_n = termico.huevos_del_mes(mes_n)
+            por_nido.append(termico.predecir_nido(
+                mes=mes_n, n_huevos=huevos_n,
+                tasa_base_especie=float(BASE.get(n.get('especie', 'golfina'), {})
+                                        .get('tasa_eclosion', 0.75)),
+                densidad_m2=dloc, prof_cm=n.get('prof'),
+            ))
+
+        resumen = termico.predecir_conjunto(por_nido)
+        sin_hacinamiento = sum(
+            termico.huevos_del_mes(
+                datetime.strptime(n['fecha_siembra'], '%Y-%m-%d').month
+                if n.get('fecha_siembra') else mes
+            ) * float(BASE.get(n.get('especie', 'golfina'), {}).get('tasa_eclosion', 0.75))
+            for n in activos
+        )
+        corral_actual = dict(resumen)
+        corral_actual.update({
+            'densidad_media_m2':  round(sum(dens_locales) / len(dens_locales), 2),
+            'densidad_maxima_m2': round(max(dens_locales), 2),
+            'crias_sin_hacinamiento': round(sin_hacinamiento, 0),
+            'crias_perdidas': round(sin_hacinamiento - resumen['crias_esperadas'], 0),
+            'meses_de_siembra': sorted({
+                n['fecha_siembra'][:7] for n in activos if n.get('fecha_siembra')
+            }),
+        })
+
     return jsonify({
         'mes': mes,
         'nidos': nidos,
@@ -683,6 +735,7 @@ def prediccion_termica():
         'capacidad_a_norma': capacidad,
         'huevos_por_nido': huevos,
         'escenarios': escenarios,
+        'corral_actual': corral_actual,
         'advertencia_temp_base': termico.TEMP_BASE_FUENTE,
         'fuentes': {
             'densidad_eclosion': 'Honarvar, O\'Connor y Spotila (2008), Oecologia 157:221-230',
