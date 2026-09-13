@@ -91,9 +91,38 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
 
 
 def obtener_clustering(nidos):
+    """Agrupa los nidos y mide la densidad real de cada uno.
+
+    El agrupamiento k-means sirve para ver por donde se concentra la siembra,
+    pero por si solo no dice si una zona esta sobrepoblada: un grupo de doce
+    nidos puede estar holgado o apinado segun la superficie que ocupe.
+
+    Por eso cada nido lleva ahora su densidad local en nidos/m2, medida sobre
+    la vecindad de 1 m x 1 m que usaron Honarvar et al. (2008), y el factor de
+    eclosion que esa densidad implica segun su curva. Asi la alerta deja de
+    depender de un conteo arbitrario y pasa a compararse contra la densidad
+    maxima documentada.
+    """
     if not nidos:
-        return {'centroids': [], 'labels': [], 'clusters': []}
-    
+        return {'centroids': [], 'labels': [], 'clusters': [], 'densidad': None}
+
+    import termico
+    from capacidad import DENSIDAD_MAX_NIDOS_M2
+
+    activos = [n for n in nidos if not n.get('eclosionado', False)]
+    pares = [(float(n['x']), float(n['y'])) for n in activos]
+    dens_activos = termico.densidades_locales(pares) if pares else []
+    por_id = {id(n): d for n, d in zip(activos, dens_activos)}
+
+    for n in nidos:
+        d = por_id.get(id(n))
+        if d is None:
+            n['densidad_m2'] = None
+            n['factor_eclosion'] = None
+        else:
+            n['densidad_m2'] = round(d, 2)
+            n['factor_eclosion'] = round(termico.factor_eclosion_por_densidad(d), 3)
+
     coords = np.array([[float(n['x']), float(n['y'])] for n in nidos], dtype=float)
     N = len(nidos)
     K = max(1, N // 15)
@@ -121,7 +150,12 @@ def obtener_clustering(nidos):
         indices = np.where(labels == i)[0]
         nidos_cluster = [nidos[idx] for idx in indices]
         conteo_activos = sum(1 for n in nidos_cluster if not n.get('eclosionado', False))
-        es_hotspot = conteo_activos >= 12
+        dens_cluster = [n['densidad_m2'] for n in nidos_cluster
+                        if n.get('densidad_m2') is not None]
+        dens_max = max(dens_cluster) if dens_cluster else 0.0
+        dens_media = (sum(dens_cluster) / len(dens_cluster)) if dens_cluster else 0.0
+        # Sobrepasar la densidad maxima documentada, no un conteo inventado
+        es_hotspot = dens_max > DENSIDAD_MAX_NIDOS_M2
         
         clusters_list.append({
             'id': i,
@@ -130,13 +164,36 @@ def obtener_clustering(nidos):
             'nidos': nidos_cluster,
             'conteo_total': len(nidos_cluster),
             'conteo_activos': conteo_activos,
+            'densidad_media_m2': round(dens_media, 2),
+            'densidad_maxima_m2': round(dens_max, 2),
             'es_hotspot': es_hotspot
         })
         
+    if dens_activos:
+        sobre_norma = sum(1 for d in dens_activos if d > DENSIDAD_MAX_NIDOS_M2)
+        sobre_ensayado = sum(1 for d in dens_activos
+                             if d > termico.DENSIDAD_REFERENCIA_M2)
+        factores = [termico.factor_eclosion_por_densidad(d) for d in dens_activos]
+        resumen_dens = {
+            'n_activos':            len(dens_activos),
+            'densidad_norma_m2':    DENSIDAD_MAX_NIDOS_M2,
+            'densidad_media_m2':    round(sum(dens_activos) / len(dens_activos), 2),
+            'densidad_maxima_m2':   round(max(dens_activos), 2),
+            'nidos_sobre_norma':    sobre_norma,
+            'nidos_sobre_ensayado': sobre_ensayado,
+            'umbral_ensayado_m2':   termico.DENSIDAD_REFERENCIA_M2,
+            'indice_eclosion':      round(sum(factores) / len(factores), 3),
+            'crias_perdidas_pct':   round((1 - sum(factores) / len(factores)) * 100, 1),
+            'fuente':               "Honarvar, O'Connor y Spotila (2008), Oecologia 157:221-230",
+        }
+    else:
+        resumen_dens = None
+
     return {
         'centroids': centroids.tolist(),
         'labels': labels.tolist(),
-        'clusters': clusters_list
+        'clusters': clusters_list,
+        'densidad': resumen_dens,
     }
 
 
