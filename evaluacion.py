@@ -285,25 +285,39 @@ def evaluar_poblacion(poblacion, gestor, base, corral, nidos_previos=None, modo=
 # Fuentes: Springer Nature, MTN, ResearchGate, SciELO
 # Ver: scratchpad/tortuga_datos_cuantitativos.md
 
-def calcular_efecto_profundidad_cientifico(profundidad_cm, prof_opt_cm):
-    """
-    Penalidad por desviación de profundidad óptima.
-    Basado en: ±5cm = -5% éxito, ±10cm = -15% éxito
+def calcular_efecto_profundidad_cientifico(profundidad_cm, prof_min_cm, prof_max_cm):
+    """Cumplimiento del rango de profundidad de la NOM-162-SEMARNAT-2012.
 
-    Args:
-        profundidad_cm: profundidad del nido en cm
-        prof_opt_cm: profundidad óptima de la especie (profundidad_siembra.csv)
+    La NOM-162 (sección 6.8.4, Tabla 1) fija para la tortuga golfina una
+    profundidad total de nido de 40 a 50 cm. La norma da un RANGO, no una
+    pérdida por centímetro, y la literatura revisada tampoco documenta esa
+    pendiente para la especie: el único estudio de profundidad en reubicación
+    encontrado (Najwa-Sawawi et al. 2021, Saudi J. Biol. Sci. 28(9):5053-5060)
+    es de tortuga verde, a unos 80 cm, y no halló diferencia significativa de
+    eclosión.
+
+    Por eso dentro del rango el efecto vale 1.0: toda profundidad que cumple
+    la norma es igual de válida. Fuera del rango la penalización no es una
+    estimación biológica sino una restricción que empuja la solución de vuelta
+    al rango. Su escala es la mitad del propio rango (5 cm para golfina), de
+    modo que no introduce ningún número ajeno a la norma.
+
+    Sustituye un coeficiente anterior de 0.01 por cm sin fuente, cuyo
+    comentario además contradecía la fórmula: decía que 10 cm costaban 15 % y
+    el cálculo daba 10 %.
 
     Returns:
-        float [0.0, 1.0]: factor de penalidad (1.0 = sin penalidad, 0.0 = máxima)
+        float [0.0, 1.0]: 1.0 dentro del rango de la norma.
     """
-    desviacion = abs(profundidad_cm - prof_opt_cm)
-
-    # Modelo lineal: cada cm de desviación = ~1% reducción
-    # ±5cm → 5% reducción, ±10cm → 10-15% reducción
-    # Usar escala conservadora: -0.01 por cm
-    penalidad = min(desviacion * 0.01, 0.50)  # Cap a 50% máximo
-    return max(0.0, 1.0 - penalidad)
+    p = float(profundidad_cm)
+    lo, hi = float(prof_min_cm), float(prof_max_cm)
+    if lo <= p <= hi:
+        return 1.0
+    semi_rango = (hi - lo) / 2.0
+    if semi_rango <= 0:
+        return 0.0
+    exceso = (lo - p) if p < lo else (p - hi)
+    return max(0.0, 1.0 - exceso / semi_rango)
 
 
 def calcular_efecto_separacion_cientifico(nidos, base):
@@ -488,7 +502,8 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
 
     # Efecto profundidad: promedio de factor por cada nido
     efecto_prof = np.mean([
-        calcular_efecto_profundidad_cientifico(g.prof, base[g.especie]['prof_opt'])
+        calcular_efecto_profundidad_cientifico(
+            g.prof, base[g.especie]['prof_min'], base[g.especie]['prof_max'])
         for g in individuo.genes
     ]) if individuo.genes else 1.0
 
