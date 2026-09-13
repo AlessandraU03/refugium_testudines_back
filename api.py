@@ -54,39 +54,39 @@ def obtener_sector_fisico(x_cm, y_cm, corral=None):
     return f"{_etiqueta_columna(col_idx)}-{row_idx + 1}"
 
 
-def calcular_modelo_girondot(f_siembra_dt, prof_cm):
+def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
+                             densidad_m2=0.0, sombra=False):
+    """Proporcion sexual de un nido. Delega en termico.py.
+
+    Antes esta funcion tenia su propia copia del modelo: su tabla de
+    temperaturas, su gradiente por profundidad y su ecuacion de Girondot.
+    termico.py implementa lo mismo con los coeficientes documentados, y tener
+    dos copias hacia que el sistema se contradijera: para un nido a 40 cm en
+    junio, una decia 97.3 % de hembras y la otra 92.6 %.
+
+    Se conserva el nombre y la forma de la respuesta para no tocar a quienes
+    la consumen, pero el calculo es ahora el unico del sistema, y ademas toma
+    en cuenta el tamano de la nidada y la sombra, que la version anterior
+    ignoraba.
     """
-    Modelo de Sandoval et al. (2020) con ecuación de Girondot (1999) para Lepidochelys olivacea:
-    Pivote P = 29.95 °C, S = -0.6301
-    Formula: Pm = 1 / (1 + exp((P - T) / S))
-    """
+    import termico
+
     mes = f_siembra_dt.month
-    # Perfil térmico típico del Pacífico mexicano (Sandoval 2020, de la Torre 2017)
-    temps_mes = {
-        1: 25.5, 2: 26.0, 3: 27.0, 4: 28.5, 5: 30.0, 6: 31.8,
-        7: 33.2, 8: 32.8, 9: 31.9, 10: 30.1, 11: 27.2, 12: 25.0
-    }
-    t_base = temps_mes.get(mes, 30.0)
-    # A 45 cm la arena amortigua el calor solar; a menor profundidad se calienta más
-    delta_prof = (45.0 - float(prof_cm)) * 0.08
-    t_media_pts = round(t_base + delta_prof, 2)
-
-    pivote = 29.95
-    s = -0.6301
-    try:
-        exp_val = math.exp((pivote - t_media_pts) / s)
-        pm = 1.0 / (1.0 + exp_val)
-    except OverflowError:
-        pm = 0.0 if t_media_pts > pivote else 1.0
-
-    pm = max(0.0, min(1.0, pm))
-    pct_macho = round(pm * 100.0, 1)
-    pct_hembra = round((1.0 - pm) * 100.0, 1)
+    huevos = termico.huevos_del_mes(mes) if n_huevos in (None, 0) else n_huevos
+    t_pts = termico.temperatura_pts(termico.temperatura_base(mes),
+                                    n_huevos=huevos, sombra=sombra,
+                                    prof_cm=prof_cm)
+    sexo = termico.proporcion_sexual(t_pts)
+    pct_hembra = sexo['pct_hembras']
+    pct_macho = sexo['pct_machos']
     return {
-        'temp_estimada_pts': t_media_pts,
+        'temp_estimada_pts': sexo['temp_pts_c'],
         'pct_machos': pct_macho,
         'pct_hembras': pct_hembra,
-        'sesgo': 'Feminizado (Predominio Hembras)' if pct_hembra > 65.0 else ('Masculinizado (Predominio Machos)' if pct_macho > 65.0 else 'Equilibrado (~50/50)')
+        'huevos_por_nido': round(float(huevos), 1),
+        'sesgo': ('Feminizado (Predominio Hembras)' if pct_hembra > 65.0
+                  else ('Masculinizado (Predominio Machos)' if pct_macho > 65.0
+                        else 'Equilibrado (~50/50)')),
     }
 
 

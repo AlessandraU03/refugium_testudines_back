@@ -151,6 +151,19 @@ TEMP_BASE_MES_C = {
 }
 TEMP_BASE_FUENTE = "PENDIENTE DE VERIFICAR - sustituir por medicion en sitio"
 
+# --- Gradiente termico por profundidad de siembra.
+#     ADVERTENCIA: 0.08 C por cada centimetro por encima de los 45 cm venia
+#     en api.py SIN FUENTE. No se ha localizado respaldo documental. Se trae
+#     aqui, en lugar de dejarlo disperso, para que sea visible y ajustable:
+#     ponerlo en 0.0 desactiva el efecto de la profundidad.
+#
+#     Su peso real es pequeno mientras se siembre a la profundidad
+#     documentada: el AG coloca los nidos a ~45 cm, asi que la correccion
+#     queda por debajo de 0.1 C. Importa solo si alguien siembra fuera de esa
+#     profundidad.
+DELTA_T_POR_CM_PROFUNDIDAD = 0.08
+PROFUNDIDAD_REFERENCIA_CM  = 45.0
+
 def fecundidad_mensual(carpeta_csv=None):
     """Huevos por nido de cada mes, medidos en Puerto Arista durante 2022.
 
@@ -289,7 +302,8 @@ def temperatura_base(mes):
     return TEMP_BASE_MES_C.get(int(mes), 30.0)
 
 
-def temperatura_pts(t_base_c, n_huevos=None, sombra=False, riego=False):
+def temperatura_pts(t_base_c, n_huevos=None, sombra=False, riego=False,
+                    prof_cm=None):
     """Temperatura media durante el periodo termosensible.
 
     Los coeficientes de Carbonell Ellgutter et al. (2025) provienen de un GAMM
@@ -311,13 +325,16 @@ def temperatura_pts(t_base_c, n_huevos=None, sombra=False, riego=False):
     n = HUEVOS_REFERENCIA if n_huevos in (None, 0) else float(n_huevos)
     t = float(t_base_c)
     t += DELTA_T_POR_HUEVO_C * (n - HUEVOS_REFERENCIA)
+    if prof_cm is not None:
+        t += (PROFUNDIDAD_REFERENCIA_CM - float(prof_cm)) * DELTA_T_POR_CM_PROFUNDIDAD
     t += _delta_mitigacion(sombra, riego)
     return round(t, 2)
 
 
 def temperatura_ultimo_tercio(t_base_c, n_huevos=None, densidad_m2=0.0,
                               sombra=False, riego=False,
-                              delta_por_densidad=DELTA_T_POR_NIDO_M2):
+                              delta_por_densidad=DELTA_T_POR_NIDO_M2,
+                              prof_cm=None):
     """Temperatura media durante el ultimo tercio, donde si pesa la densidad.
 
     Se construye sobre la del PTS sumando dos cosas:
@@ -332,7 +349,7 @@ def temperatura_ultimo_tercio(t_base_c, n_huevos=None, densidad_m2=0.0,
     argumento justamente para poder recorrer su rango en el analisis de
     sensibilidad.
     """
-    t = temperatura_pts(t_base_c, n_huevos, sombra, riego)
+    t = temperatura_pts(t_base_c, n_huevos, sombra, riego, prof_cm)
     t += SALTO_METABOLICO_FINAL_C
     exceso = max(0.0, float(densidad_m2) - DENSIDAD_REFERENCIA_M2)
     t += delta_por_densidad * exceso
@@ -389,7 +406,7 @@ def riesgo_letal(t_ultimo_tercio_c):
 
 def predecir_nido(mes, n_huevos, tasa_base_especie, densidad_m2=0.0,
                   sombra=False, riego=False, t_base_c=None,
-                  delta_por_densidad=DELTA_T_POR_NIDO_M2):
+                  delta_por_densidad=DELTA_T_POR_NIDO_M2, prof_cm=None):
     """Prediccion completa para un nido: crias esperadas y sexo.
 
     Args:
@@ -403,9 +420,10 @@ def predecir_nido(mes, n_huevos, tasa_base_especie, densidad_m2=0.0,
     """
     t_base = temperatura_base(mes) if t_base_c is None else float(t_base_c)
 
-    t_pts   = temperatura_pts(t_base, n_huevos, sombra, riego)
+    t_pts   = temperatura_pts(t_base, n_huevos, sombra, riego, prof_cm)
     t_final = temperatura_ultimo_tercio(t_base, n_huevos, densidad_m2,
-                                        sombra, riego, delta_por_densidad)
+                                        sombra, riego, delta_por_densidad,
+                                        prof_cm)
 
     factor = factor_eclosion_por_densidad(densidad_m2)
     tasa   = max(0.0, min(1.0, float(tasa_base_especie) * factor))
