@@ -1,0 +1,12 @@
+campo,valor,supuesto,fuente
+latitud_grados,15.94521,no,"Coordenada proporcionada por la usuaria; Plus Code W5V9+VV, playa cerca de Puerto Arista, Tonala, Chiapas"
+longitud_grados,-93.83029,no,"Coordenada proporcionada por la usuaria; Plus Code W5V9+VV"
+huso_horario_horas,-6,no,"Tiempo del Centro de Mexico (UTC-6)"
+orientacion_grados,115,si,"SUPUESTO. Azimut del eje largo del corral, grados desde el norte en sentido del reloj. 115 grados (ESE) alinea el corral con la linea de costa de Chiapas, que corre NO-SE. PENDIENTE: medir con brujula en campo"
+malla_xmin_cm,0,si,"SUPUESTO. Region cubierta por la malla sombra, en coordenadas locales del corral"
+malla_ymin_cm,0,si,SUPUESTO
+malla_xmax_cm,1800,si,"SUPUESTO. Cubre 1800 de los 3000 cm del largo, es decir 60 por ciento del corral. PENDIENTE: confirmar la cobertura real con los biologos. De esto depende que la posicion del nido influya en su sexo"
+malla_ymax_cm,800,si,"SUPUESTO. Cubre todo el ancho"
+malla_altura_cm,200,si,"SUPUESTO. Altura de la estructura sobre la arena. Determina cuanto se desplaza la sombra al bajar el sol: a 200 cm de alto, con el sol a 30 grados de altura la sombra se corre 346 cm"
+malla_atenuacion,0.80,si,"SUPUESTO. Fraccion de la radiacion directa que intercepta la malla. Hill et al. (2015) NO reportan el porcentaje de sus parcelas sombreadas, solo sombreada contra expuesta, asi que no existe un mapeo documentado de porcentaje a grados. Se asume malla de sombreo fuerte (80 por ciento) y la atenuacion escala linealmente entre 0 y el anclaje medido por Hill. PENDIENTE: leer la etiqueta de la malla instalada"
+paso_minutos,10,no,"Resolucion temporal con que se integra la trayectoria solar a lo largo del dia"

@@ -6,10 +6,12 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from cromosoma import (cargar_base_conocimiento, GestorZonas,
-                       RegistroJornadas, calcular_capacidad_restante)
+from cromosoma import (cargar_base_conocimiento, GestorZonas, GestoresZonas,
+                       RegistroJornadas)
 from ag import ejecutar_ag
-from evaluacion import calcular_pts_window, calcular_semana_incubacion
+from inicializacion import individuo_secuencial
+from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
+                        calcular_fitness)
 
 # Servidor API Flask - Refugium Testudinis
 app  = Flask(__name__)
@@ -20,6 +22,23 @@ JORNADAS_FILE = os.path.join(os.path.dirname(__file__), 'jornadas.json')
 
 BASE, CORRAL = cargar_base_conocimiento(CSV_DIR)
 REGISTRO     = RegistroJornadas(JORNADAS_FILE)
+
+# Configuracion del sitio: latitud, longitud, orientacion del corral y
+# geometria de la malla sombra. Es lo que vuelve general al programa: cambiando
+# este CSV el sistema sirve para cualquier corral, no solo para Puerto Arista.
+try:
+    import solar
+    SITIO = solar.cargar_sitio(CSV_DIR)
+except Exception as _e:
+    print('[aviso] no se pudo leer csv/sitio.csv (%s). La sombra se evaluara '
+          'de forma binaria, sin geometria solar.' % _e)
+    SITIO = None
+
+# Pivote y parametro de forma de la ecuacion de Girondot, por especie.
+PARAMS_ESPECIE = {
+    e: {'pivote': BASE[e].get('pivote_temp'), 's': BASE[e].get('s_parameter')}
+    for e in BASE
+}
 
 
 def _etiqueta_columna(idx):
@@ -55,7 +74,8 @@ def obtener_sector_fisico(x_cm, y_cm, corral=None):
 
 
 def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
-                             densidad_m2=0.0, sombra=False):
+                             densidad_m2=0.0, sombra=None, especie='golfina',
+                             x_cm=None, y_cm=None):
     """Proporcion sexual de un nido. Delega en termico.py.
 
     Antes esta funcion tenia su propia copia del modelo: su tabla de
@@ -72,11 +92,26 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
     import termico
 
     mes = f_siembra_dt.month
+
+    # Sombra del nido. Con coordenadas y configuracion de sitio se resuelve por
+    # geometria solar: la fraccion de la insolacion del dia que la malla le
+    # intercepta, dada su posicion, la orientacion del corral, la altura de la
+    # malla, la fecha y la latitud. Dos nidos del mismo corral pueden diferir
+    # mas de cuarenta puntos de hembras solo por donde quedaron.
+    if sombra is None:
+        if SITIO is not None and x_cm is not None and y_cm is not None:
+            sombra = solar.fraccion_sombra_dia(
+                float(x_cm), float(y_cm), f_siembra_dt.timetuple().tm_yday,
+                SITIO)
+        else:
+            sombra = termico.CORRAL_CON_MALLA_SOMBRA
+
+    pe = PARAMS_ESPECIE.get(especie, {})
     huevos = termico.huevos_del_mes(mes) if n_huevos in (None, 0) else n_huevos
     t_pts = termico.temperatura_pts(termico.temperatura_base(mes),
                                     n_huevos=huevos, sombra=sombra,
                                     prof_cm=prof_cm)
-    sexo = termico.proporcion_sexual(t_pts)
+    sexo = termico.proporcion_sexual(t_pts, pe.get('pivote'), pe.get('s'))
     pct_hembra = sexo['pct_hembras']
     pct_macho = sexo['pct_machos']
     return {
@@ -107,7 +142,7 @@ def obtener_clustering(nidos):
         return {'centroids': [], 'labels': [], 'clusters': [], 'densidad': None}
 
     import termico
-    from capacidad import DENSIDAD_MAX_NIDOS_M2
+    from termico import DENSIDAD_MAX_NIDOS_M2
 
     activos = [n for n in nidos if not n.get('eclosionado', False)]
     pares = [(float(n['x']), float(n['y'])) for n in activos]
@@ -199,7 +234,20 @@ def obtener_clustering(nidos):
 
 @app.route('/api/base-conocimiento')
 def base_conocimiento():
-    return jsonify({'base': BASE, 'corral': CORRAL})
+    """Parametros del sistema, y cuales de ellos son supuestos.
+
+    `supuestos` lista los campos que NO provienen de una medicion ni de una
+    fuente publicada. Se expone para que la interfaz los marque y el protocolo
+    los declare: un supuesto declarado se puede defender, un numero inventado
+    que se presento como medicion, no.
+    """
+    return jsonify({
+        'base':   BASE,
+        'corral': CORRAL,
+        'sitio':  SITIO,
+        'supuestos': (SITIO or {}).get('supuestos', []),
+        'params_especie': PARAMS_ESPECIE,
+    })
 
 
 @app.route('/api/ejecutar', methods=['POST'])
@@ -207,15 +255,41 @@ def ejecutar():
     data = request.get_json()
 
     n_g   = max(0, int(data.get('n_golfina', 0)))
-    n_p   = 0
-    n_l   = 0
+    n_p   = max(0, int(data.get('n_prieta',  0)))
+    n_l   = max(0, int(data.get('n_laud',    0)))
     fecha = data.get('fecha', datetime.today().strftime('%Y-%m-%d'))
 
-    if n_g == 0:
-        return jsonify({'error': 'Ingresa al menos 1 nido de Golfina'}), 400
+    if n_g + n_p + n_l == 0:
+        return jsonify({'error': 'Ingresa al menos 1 nido de alguna especie'}), 400
 
-    gestor = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)
-    nidos_entrada = [(i, 'golfina') for i in range(n_g)]
+    # Medidas del corral. Vienen de csv/corral_incubacion.csv, pero la jornada
+    # puede pedir otras: asi se puede ensayar que pasaria con un corral mas
+    # largo o mas ancho sin tocar ningun archivo. Es parte de que el programa
+    # sea general y no el de un solo sitio.
+    corral = dict(CORRAL)
+    try:
+        if data.get('largo_m'):
+            corral['largo_cm'] = max(100.0, float(data['largo_m']) * 100.0)
+        if data.get('ancho_m'):
+            corral['ancho_cm'] = max(100.0, float(data['ancho_m']) * 100.0)
+    except (TypeError, ValueError):
+        pass
+    area_m2 = float(corral['largo_cm']) * float(corral['ancho_cm']) / 10000.0
+    corral['area_m2'] = round(area_m2, 1)
+    corral['capacidad_maxima_nidos_simultaneos'] = int(area_m2)  # 1 nido/m2
+
+    # Los seis repartos posibles de las franjas. El AG elige uno: con la malla
+    # sombra cubriendo parte del corral, ese reparto decide a que especie le
+    # toca el fresco. Medido en septiembre, prieta pasa de 0.11 a 0.97 de
+    # sombra segun el reparto.
+    gestor = GestoresZonas(corral, n_g, n_p, n_l, BASE)
+
+    # Las tres especies conviven en el corral, cada una en su zona y con sus
+    # propios parametros: profundidad y separacion de la NOM-162, dias de
+    # incubacion, ventana del PTS y pivote de determinacion sexual.
+    nidos_entrada = ([(i, 'golfina') for i in range(n_g)] +
+                     [(n_g + i, 'prieta') for i in range(n_p)] +
+                     [(n_g + n_p + i, 'laud') for i in range(n_l)])
 
     try:
         nidos_activos = REGISTRO.obtener_nidos_activos(fecha, BASE)
@@ -225,21 +299,35 @@ def ejecutar():
     nidos_ocupados = [{'x': n['x'], 'y': n['y'], 'especie': n['especie']}
                       for n in nidos_activos]
 
-    mejor, top3, historial = ejecutar_ag(
-        nidos_entrada, gestor, BASE, CORRAL, nidos_ocupados)
-
-    # Parsear fecha de siembra
+    # La fecha se parsea ANTES de correr el AG. De su mes dependen la
+    # temperatura base de la arena y el tamano de la nidada, y por tanto la
+    # proporcion sexual que el AG intenta alcanzar.
     try:
         f_siembra = datetime.strptime(fecha, '%Y-%m-%d')
     except ValueError:
         f_siembra = datetime.today()
 
-    # Calcular ventana de PTS
-    pts_window = calcular_pts_window(f_siembra, 'golfina', BASE)
+    gestores = gestor
+    mejor, top3, historial = ejecutar_ag(
+        nidos_entrada, gestores, BASE, corral, nidos_ocupados,
+        mes=f_siembra.month)
+
+    # De aqui en adelante, la geometria de zonas del individuo GANADOR: es la
+    # que hay que dibujar y reportar.
+    gestor = gestores.para(mejor.idx_orden)
+    orden_elegido = list(gestor.orden)
+
+    # Ventana del PTS por especie: cada una tiene su propio tercio medio
+    # (golfina dias 17-33, prieta 20-40, laud 22-43).
+    pts_por_especie = {e: calcular_pts_window(f_siembra, e, BASE) for e in BASE}
 
     def ser_ind(ind):
         return {
             'fitness': round(ind.fitness, 6),
+            # Que reparto de franjas usa este individuo. Sin esto no se puede
+            # ver en el Top 3 que el AG probo distintos repartos.
+            'idx_orden': getattr(ind, 'idx_orden', 0),
+            'orden_zonas': list(gestores.para(getattr(ind, 'idx_orden', 0)).orden),
             'v1': round(ind.v1, 4),
             'v2': round(ind.v2, 4),
             'v3': round(ind.v3, 4),
@@ -251,57 +339,76 @@ def ejecutar():
                 'x':                g.x,
                 'y':                g.y,
                 'prof':             g.prof,
-                'sector':           obtener_sector_fisico(g.x, g.y),
+                'sector':           obtener_sector_fisico(g.x, g.y, corral),
                 'zona':             g.zona_correcta(),
                 'num_huevas':       g.num_huevas if hasattr(g, 'num_huevas') else 0,
                 'orden_incubacion': g.orden_incubacion if hasattr(g, 'orden_incubacion') else g.id_nido,
                 'fecha_siembra':    fecha,
-                'pts':              pts_window,
+                'pts':              pts_por_especie.get(g.especie),
                 'semana_info':      calcular_semana_incubacion(f_siembra, datetime.today(), BASE, g.especie),
-                'proporcion_sexual': calcular_modelo_girondot(f_siembra, g.prof)
+                'sombra_solar':     (round(solar.fraccion_sombra_dia(
+                                        g.x, g.y, f_siembra.timetuple().tm_yday,
+                                        SITIO), 3)
+                                     if SITIO is not None else None),
+                'proporcion_sexual': calcular_modelo_girondot(
+                                        f_siembra, g.prof, especie=g.especie,
+                                        x_cm=g.x, y_cm=g.y)
             } for g in ind.genes],
         }
 
-    # Fechas de eclosión y Periodo Termosensible (PTS)
+    # Fechas de eclosion y PTS, una fila por especie presente.
+    #
+    # Cada especie incuba distinto -golfina 45-55 dias, prieta 55-65, laud
+    # 60-70- y su ventana del PTS sale de pts_termosensible.csv. Antes este
+    # bloque suponia golfina para todo y calculaba el rango 45-55 a mano.
     fechas = []
-    dp = BASE['golfina']['dias_prom']
-    fecha_min = (f_siembra + timedelta(days=45)).strftime('%Y-%m-%d')
-    fecha_max = (f_siembra + timedelta(days=55)).strftime('%Y-%m-%d')
+    for esp in ('golfina', 'prieta', 'laud'):
+        gs = [g for g in mejor.genes if g.especie == esp]
+        if not gs:
+            continue
+        e  = BASE[esp]
+        dp = e['dias_prom']
+        w  = pts_por_especie[esp]
 
-    pts_ini_dias = round(dp / 3)
-    pts_fin_dias = round(2 * dp / 3)
-    pts_ini_str = (f_siembra + timedelta(days=pts_ini_dias)).strftime('%Y-%m-%d')
-    pts_fin_str = (f_siembra + timedelta(days=pts_fin_dias)).strftime('%Y-%m-%d')
+        # Posicion representativa de la especie para resolver su sombra. Es el
+        # centroide de su zona: sirve para la fila resumen, mientras que cada
+        # nido lleva su propia sombra y su propio sexo en ser_ind().
+        prof_media = float(np.mean([g.prof for g in gs]))
+        x_media    = float(np.mean([g.x for g in gs]))
+        y_media    = float(np.mean([g.y for g in gs]))
 
-    prof_media = float(np.mean([g.prof for g in mejor.genes])) if mejor.genes else 45.0
-    sex_ratio_global = calcular_modelo_girondot(f_siembra, prof_media)
+        fechas.append({
+            'especie':            esp,
+            'fecha_siembra':      f_siembra.strftime('%Y-%m-%d'),
+            'dias_incubacion':    dp,
+            'nidos':              len(gs),
+            'fecha_eclosion':     (f_siembra + timedelta(days=dp)).strftime('%Y-%m-%d'),
+            'fecha_eclosion_min': (f_siembra + timedelta(days=e['dias_min'])).strftime('%Y-%m-%d'),
+            'fecha_eclosion_max': (f_siembra + timedelta(days=e['dias_max'])).strftime('%Y-%m-%d'),
+            'pts_inicio':         w['pts_inicio'],
+            'pts_fin':            w['pts_fin'],
+            'pts_dias':           'Días %d al %d de incubación'
+                                  % (w['pts_inicio_dia'], w['pts_fin_dia']),
+            'proporcion_sexual':  calcular_modelo_girondot(
+                                      f_siembra, prof_media, especie=esp,
+                                      x_cm=x_media, y_cm=y_media),
+        })
 
-    fechas.append({
-        'especie':            'golfina',
-        'fecha_siembra':      f_siembra.strftime('%Y-%m-%d'),
-        'dias_incubacion':    dp,
-        'fecha_eclosion':     (f_siembra + timedelta(days=dp)).strftime('%Y-%m-%d'),
-        'fecha_eclosion_min': fecha_min,
-        'fecha_eclosion_max': fecha_max,
-        'pts_inicio':         pts_ini_str,
-        'pts_fin':            pts_fin_str,
-        'pts_dias':           f"Días {pts_ini_dias} al {pts_fin_dias} de incubación",
-        'proporcion_sexual':  sex_ratio_global,
-    })
-
-    # Validación
+    # Validación: tasa estimada contra la histórica, una fila por especie.
     validacion = []
-    gs_esp = [g for g in mejor.genes if g.especie == 'golfina']
-    if gs_esp:
-        e    = BASE['golfina']
+    for esp in ('golfina', 'prieta', 'laud'):
+        gs_esp = [g for g in mejor.genes if g.especie == esp]
+        if not gs_esp:
+            continue
+        e    = BASE[esp]
         prfs = np.array([g.prof for g in gs_esp])
         fp   = np.exp(-((prfs - e['prof_opt'])**2) / (2 * e['sigma']**2))
         xs_n = np.array([g.x for g in gs_esp])
         ys_n = np.array([g.y for g in gs_esp])
         n_e  = len(gs_esp)
 
-        xs_prev = np.array([n['x'] for n in nidos_ocupados if n['especie'] == 'golfina'])
-        ys_prev = np.array([n['y'] for n in nidos_ocupados if n['especie'] == 'golfina'])
+        xs_prev = np.array([n['x'] for n in nidos_ocupados if n['especie'] == esp])
+        ys_prev = np.array([n['y'] for n in nidos_ocupados if n['especie'] == esp])
         xs_all  = np.concatenate([xs_n, xs_prev])
         ys_all  = np.concatenate([ys_n, ys_prev])
         n_all   = len(xs_all)
@@ -318,16 +425,30 @@ def ejecutar():
             fs = np.ones(n_e)
 
         tasas = e['tasa_promedio'] + (e['tasa_maxima'] - e['tasa_promedio']) * fp * fs
-        validacion.append({
-            'especie':  'golfina',
+        fila = {
+            'especie':   esp,
+            'nidos':     n_e,
             'historico': round(float(e['tasa_promedio']), 4),
             'estimado':  round(float(tasas.mean()), 4),
             'maximo':    round(float(e['tasa_maxima']), 4),
-            'benchmark_oaxaca_eclosion': 0.866,   # de la Torre-Robles et al. (2017)
-            'benchmark_oaxaca_emergencia': 0.827, # de la Torre-Robles et al. (2017)
-            'benchmark_oaxaca_mortalidad': 0.053, # de la Torre-Robles et al. (2017)
-            'benchmark_sinaloa_pivote': 29.95,     # Sandoval et al. (2020)
-        })
+            'pivote_c':  e.get('pivote_temp'),
+        }
+        # Los contrastes de campo son de un corral mexicano real y solo
+        # existen para las especies que ese estudio midio.
+        if esp == 'golfina':
+            fila.update({
+                'benchmark_oaxaca_eclosion': 0.866,   # de la Torre-Robles et al. (2017)
+                'benchmark_oaxaca_emergencia': 0.827, # de la Torre-Robles et al. (2017)
+                'benchmark_oaxaca_mortalidad': 0.053, # de la Torre-Robles et al. (2017)
+                'benchmark_sinaloa_pivote': 29.95,    # Sandoval et al., Playa Ceuta
+            })
+        elif esp == 'laud':
+            fila.update({
+                'benchmark_oaxaca_eclosion': 0.474,   # de la Torre-Robles et al. (2017)
+                'benchmark_oaxaca_emergencia': 0.453, # de la Torre-Robles et al. (2017)
+                'benchmark_oaxaca_mortalidad': 0.202, # de la Torre-Robles et al. (2017)
+            })
+        validacion.append(fila)
 
     zonas = [{
         'nombre':  nombre,
@@ -382,27 +503,150 @@ def ejecutar():
 
     # Alerta de calor
     nidos_activos_incubando = [n for n in todos_para_clustering if not n.get('eclosionado', False)]
-    capacidad_max = int(CORRAL.get('capacidad_maxima_nidos_simultaneos', 400))
+    capacidad_max = int(corral.get('capacidad_maxima_nidos_simultaneos', 400))
     pct = (len(nidos_activos_incubando) / capacidad_max) * 100.0 if capacidad_max > 0 else 0.0
     alerta_calor = {
         'activada': pct >= 75.0,
-        'mensaje': "Atención: Capacidad de incubación alta (>75%). El calor metabólico acumulado puede elevar la temperatura de la arena por encima del umbral crítico de 29.7°C, induciendo feminización de crías (sesgo de género) y afectando la viabilidad embrionaria." if pct >= 75.0 else None
+        # El hacinamiento NO feminiza. Honarvar et al. (2008) hallaron
+        # diferencias de temperatura entre densidades solo en los dias 37, 40
+        # y 47; el periodo termosensible de la golfina va del dia 17 al 33, de
+        # modo que cuando el apinamiento calienta la arena el sexo ya quedo
+        # determinado. Lo que cuesta el hacinamiento es ECLOSION, y en el
+        # tercio final, riesgo de rebasar el limite letal.
+        'mensaje': ("Atención: ocupación del corral por encima del 75 %. Al apretarse "
+                    "los nidos sube la densidad local y cada nido pierde eclosión según "
+                    "la curva de Honarvar et al. (2008); además el calor metabólico del "
+                    "último tercio acerca la arena al límite letal de 36 °C. No altera la "
+                    "proporción sexual: el sexo se determina entre los días 17 y 33, antes "
+                    "de que el hacinamiento caliente la arena.") if pct >= 75.0 else None
     }
 
     # Separacion realmente usada. Si al pedir mas nidos que casillas la rejilla
     # tuvo que apretarse, aqui se ve: apretar cuesta eclosion y no debe pasar
     # inadvertido para quien siembra.
-    sep_norma = float(BASE['golfina']['sep_min'])
-    sep_real  = gestor.separacion_efectiva.get('zona_golfina', sep_norma)
+    # Cada especie tiene su propia separacion de norma (golfina 100 cm, prieta
+    # 120, laud 150) y su propia rejilla, asi que se reporta por especie.
+    conteo_esp = {'golfina': n_g, 'prieta': n_p, 'laud': n_l}
+    por_especie = {}
+    comprimida_alguna = False
+    peor = None
+    for esp, n_esp in conteo_esp.items():
+        if not n_esp:
+            continue
+        s_norma = float(BASE[esp]['sep_min'])
+        s_real  = gestor.separacion_efectiva.get('zona_%s' % esp, s_norma)
+        comp    = s_real < s_norma - 0.05
+        comprimida_alguna = comprimida_alguna or comp
+        por_especie[esp] = {
+            'norma_cm':    round(s_norma, 1),
+            'efectiva_cm': round(s_real, 1),
+            'comprimida':  comp,
+            'nidos':       n_esp,
+        }
+        if comp and (peor is None or s_norma - s_real > peor[1]):
+            peor = (esp, s_norma - s_real, n_esp, s_norma, s_real)
+
+    # Se conservan las claves planas de la especie mas comprimida para no
+    # romper a quien ya consumia este bloque.
+    esp_ref = peor[0] if peor else ('golfina' if n_g else
+                                    ('prieta' if n_p else 'laud'))
+    ref = por_especie.get(esp_ref, {'norma_cm': 0, 'efectiva_cm': 0})
     separacion = {
-        'norma_cm':   round(sep_norma, 1),
-        'efectiva_cm': round(sep_real, 1),
-        'comprimida': sep_real < sep_norma - 0.05,
+        'por_especie': por_especie,
+        'norma_cm':    ref['norma_cm'],
+        'efectiva_cm': ref['efectiva_cm'],
+        'comprimida':  comprimida_alguna,
         'mensaje': (
-            'No cabían %d nidos a %.0f cm. La rejilla se apretó a %.0f cm: '
+            'No cabían %d nidos de %s a %.0f cm. La rejilla se apretó a %.0f cm: '
             'cada nido pierde eclosión por hacinamiento.'
-            % (n_g, sep_norma, sep_real)
-        ) if sep_real < sep_norma - 0.05 else None,
+            % (peor[2], peor[0], peor[3], peor[4])
+        ) if peor else None,
+    }
+    sep_norma = ref['norma_cm']
+
+    # ------------------------------------------------------------------
+    #  Que rinde esta colocacion, y cuanto de eso lo puso el AG
+    # ------------------------------------------------------------------
+    # Un fitness de 0.87 no le dice nada a quien siembra. Lo que si dice algo
+    # es cuantas crias salen de esta colocacion, y sobre todo cuantas mas que
+    # con el procedimiento actual.
+    #
+    # La referencia es la siembra secuencial: llenar la rejilla en serpentina
+    # a la separacion de la norma, todo a la profundidad optima. Es lo que se
+    # hace hoy en el corral sin ningun algoritmo, asi que es contra eso que el
+    # AG tiene que demostrar que sirve. Se evalua con la misma funcion de
+    # aptitud y el mismo modelo termico, sobre el mismo corral y los mismos
+    # nidos previos: la unica diferencia es donde quedo cada nido.
+    import termico
+    referencia = individuo_secuencial(nidos_entrada, gestor, BASE, nidos_ocupados)
+    calcular_fitness(referencia, gestor, BASE, corral, nidos_ocupados,
+                     mes=f_siembra.month)
+
+    tasas_especie = {e: BASE[e].get('tasa_eclosion', 0.75) for e in BASE}
+    huevos_mes = termico.huevos_del_mes(f_siembra.month)
+
+    # La malla sombra del corral, como una region que cubre toda su superficie.
+    #
+    # Hay que pasarla explicitamente: TEMP_BASE_MES_C esta construida como
+    # corral DESCUBIERTO (le suma de vuelta el efecto de la malla) para que
+    # aplicar sombra sea una resta. Evaluar sin este rectangulo describe un
+    # corral sin malla, y da 34.2 C en el PTS con todos los nidos en riesgo
+    # letal, que no es la situacion de Puerto Arista.
+    # Respaldo binario por si no hay geometria solar: la misma malla declarada
+    # en sitio.csv, no un corral cubierto por completo.
+    sombra_corral = ([dict(SITIO['malla'])] if SITIO is not None else
+                     ([{'xmin': 0.0, 'ymin': 0.0,
+                        'xmax': float(corral['largo_cm']),
+                        'ymax': float(corral['ancho_cm'])}]
+                      if termico.CORRAL_CON_MALLA_SOMBRA else []))
+
+    def rendir(ind):
+        """Crias y sexo que produce una colocacion, con los nidos ya sembrados.
+
+        Los nidos previos entran al calculo porque la densidad que rodea a un
+        nido nuevo depende de lo que ya esta enterrado a su lado. Son los
+        mismos en las dos colocaciones, asi que la diferencia entre ellas es
+        atribuible al algoritmo.
+        """
+        nidos = list(ind.genes) + [
+            {'x': n['x'], 'y': n['y'], 'especie': n['especie'], 'num_huevas': 0}
+            for n in nidos_ocupados
+        ]
+        r = termico.evaluar_colocacion(nidos, tasas_especie,
+                                       mes=f_siembra.month,
+                                       rectangulos_sombra=sombra_corral,
+                                       huevos_por_defecto=huevos_mes,
+                                       sitio=SITIO,
+                                       dia_del_anio=f_siembra.timetuple().tm_yday,
+                                       params_especie=PARAMS_ESPECIE)
+        res = r['resumen']
+        dens = [q['densidad_m2'] for q in r['por_nido']]
+        return {
+            'fitness':            round(float(ind.fitness), 6),
+            'indice_eclosion':    r['indice_eclosion'],
+            'crias_esperadas':    res['crias_esperadas'],
+            'crias_hembras':      res['crias_hembras'],
+            'crias_machos':       res['crias_machos'],
+            'pct_hembras':        res['pct_hembras'],
+            'temp_pts_media_c':   res['temp_pts_media_c'],
+            'nidos_en_riesgo':    res['nidos_en_riesgo_termico'],
+            'densidad_maxima_m2': round(max(dens), 2) if dens else 0.0,
+        }
+
+    rend_ag  = rendir(mejor)
+    rend_sec = rendir(referencia)
+    rendimiento = {
+        'mes':               f_siembra.month,
+        'nidos_evaluados':   len(mejor.genes) + len(nidos_ocupados),
+        'nidos_nuevos':      len(mejor.genes),
+        'ag':                rend_ag,
+        'secuencial':        rend_sec,
+        'ganancia_crias':    round(rend_ag['crias_esperadas'] - rend_sec['crias_esperadas'], 1),
+        'ganancia_fitness':  round(rend_ag['fitness'] - rend_sec['fitness'], 6),
+        'densidad_norma_m2': 1.0,
+        'referencia': ('Llenado secuencial de la rejilla a %.0f cm de separacion '
+                       'y profundidad optima: el procedimiento actual, sin algoritmo.'
+                       % sep_norma),
     }
 
     return jsonify({
@@ -410,13 +654,24 @@ def ejecutar():
         'top3':          [ser_ind(i) for i in top3],
         'mejor':         ser_ind(mejor),
         'separacion':    separacion,
+        'rendimiento':   rendimiento,
         'fechas':        fechas,
         'validacion':    validacion,
         'zonas':         zonas,
-        'corral':        CORRAL,
+        'corral':        corral,
         'n_golfina':     n_g,
-        'n_prieta':      0,
-        'n_laud':        0,
+        'n_prieta':      n_p,
+        'n_laud':        n_l,
+        'orden_zonas':   orden_elegido,
+        'orden_base':    ['golfina', 'prieta', 'laud'],
+        'sitio':         ({'latitud': SITIO['latitud'],
+                           'longitud': SITIO['longitud'],
+                           'orientacion': SITIO['orientacion'],
+                           'malla': SITIO['malla'],
+                           'altura_malla': SITIO['altura_malla'],
+                           'atenuacion_malla': SITIO['atenuacion_malla'],
+                           'supuestos': SITIO['supuestos']}
+                          if SITIO is not None else None),
         'nidos_previos': nidos_previos_serial,
         'n_previos':     len(nidos_activos),
         'total_corral':  total_corral,
@@ -430,8 +685,8 @@ def guardar_jornada():
     data  = request.get_json()
     fecha = data['fecha']
     n_g   = int(data.get('n_golfina', 0))
-    n_p   = 0
-    n_l   = 0
+    n_p   = int(data.get('n_prieta', 0))
+    n_l   = int(data.get('n_laud', 0))
 
     from cromosoma import Gen, Individuo
     genes = [Gen(g['id'], g['especie'], g['x'], g['y'], g['prof'])
@@ -443,131 +698,14 @@ def guardar_jornada():
     ind.v3 = data['mejor']['v3']
 
     params = {'tam_pob': 50, 'n_gen': 100, 'prob_cruza': 0.85, 'prob_mut': 0.15}
-    gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE)
+    # El reparto de franjas que eligio el AG, no el historico. Si se guardara
+    # siempre el historico, las jornadas futuras dibujarian los nidos previos
+    # en zonas que nunca fueron las suyas.
+    orden_guardar = data.get('orden_zonas') or None
+    gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE,
+                                 orden=orden_guardar)
     jornada = REGISTRO.guardar_jornada(fecha, n_g, n_p, n_l, ind, params, gestor=gestor_guardar)
     return jsonify({'ok': True, 'jornada': jornada})
-
-
-@app.route('/api/capacidad')
-def capacidad():
-    """
-    Diagnóstico de capacidad: contrasta la superficie instalada contra la
-    curva estacional de llegada de nidos, a densidad de 1 nido/m2.
-    """
-    from capacidad import (capacidad_segura, simular_temporada,
-                           resumen_temporada, separacion_implicita,
-                           DENSIDAD_MAX_NIDOS_M2, DIAS_HASTA_EXCAVACION)
-    from cromosoma import cargar_csv
-    from datetime import date, timedelta
-    import calendar
-
-    corrales_rows = cargar_csv(os.path.join(CSV_DIR, 'corrales.csv'))
-    corrales = [{
-        'id':     int(r['corral_id']),
-        'nombre': r['nombre'],
-        'largo_m': float(r['largo_m']),
-        'ancho_m': float(r['ancho_m']),
-        'area_m2': float(r['largo_m']) * float(r['ancho_m']),
-        'capacidad': capacidad_segura(r['largo_m'], r['ancho_m']),
-        'fuente': r.get('fuente', ''),
-    } for r in corrales_rows]
-
-    cap_total = sum(c['capacidad'] for c in corrales)
-    area_total = sum(c['area_m2'] for c in corrales)
-
-    filas = cargar_csv(os.path.join(CSV_DIR, 'anidacion_mensual.csv'))
-    anio = int(filas[0]['anio']) if filas else 2022
-    por_mes = {int(f['mes']): float(f['nidos']) for f in filas}
-    fuente_datos = filas[0].get('fuente', '') if filas else ''
-
-    arribos = {}
-    for m, n in por_mes.items():
-        dim = calendar.monthrange(anio, m)[1]
-        for d in range(dim):
-            arribos[date(anio, m, 1) + timedelta(days=d)] = n / dim
-
-    dias_inc = BASE['golfina']['dias_prom']
-    serie = simular_temporada(arribos, cap_total, dias_inc)
-    r = resumen_temporada(serie, cap_total)
-
-    con_deficit = [d for d, v in serie.items() if v['deficit'] > 0]
-
-    # ------------------------------------------------------------------
-    #  Temporada en curso, con los nidos realmente sembrados
-    # ------------------------------------------------------------------
-    # La serie historica reparte los nidos de cada mes por igual entre sus
-    # dias, porque la fuente solo publica totales mensuales. Las jornadas
-    # guardadas traen la fecha exacta de cada siembra, asi que esta curva no
-    # necesita ese supuesto: es la ocupacion real del corral.
-    registro = None
-    jornadas = REGISTRO.datos.get('jornadas', [])
-    if jornadas:
-        arribos_reg = {}
-        for j in jornadas:
-            try:
-                f = datetime.strptime(j['fecha'], '%Y-%m-%d').date()
-            except (KeyError, ValueError):
-                continue
-            n = len(j.get('nidos') or [])
-            if not n:
-                n = sum(int(v) for v in (j.get('entradas') or {}).values())
-            arribos_reg[f] = arribos_reg.get(f, 0) + n
-
-        if arribos_reg:
-            serie_reg = simular_temporada(arribos_reg, cap_total, dias_inc)
-            r_reg = resumen_temporada(serie_reg, cap_total)
-            con_def_reg = [d for d, v in serie_reg.items() if v['deficit'] > 0]
-            pico_reg = r_reg['pico_ocupacion']
-            registro = {
-                'jornadas':           len(jornadas),
-                'dias_con_siembra':   len(arribos_reg),
-                'nidos_sembrados':    int(sum(arribos_reg.values())),
-                'primera_siembra':    min(arribos_reg).strftime('%Y-%m-%d'),
-                'ultima_siembra':     max(arribos_reg).strftime('%Y-%m-%d'),
-                'pico_ocupacion':     round(pico_reg),
-                'fecha_pico':         r_reg['fecha_pico'].strftime('%Y-%m-%d'),
-                'cobertura_del_pico': round(r_reg['cobertura_del_pico'], 4),
-                'deficit_maximo':     round(r_reg['deficit_maximo']),
-                'dias_con_deficit':   r_reg['dias_con_deficit'],
-                'area_faltante_m2':   round(r_reg['area_faltante_m2']),
-                'separacion_en_pico_m': round(
-                    separacion_implicita(area_total, 1.0, pico_reg), 2
-                ) if pico_reg > 0 else None,
-                'ventana_inicio':     min(con_def_reg).strftime('%Y-%m-%d') if con_def_reg else None,
-                'ventana_fin':        max(con_def_reg).strftime('%Y-%m-%d') if con_def_reg else None,
-                'serie': [{'fecha': d.strftime('%Y-%m-%d'),
-                           'ocupados': round(v['ocupados']),
-                           'deficit':  round(v['deficit'])}
-                          for d, v in serie_reg.items()],
-                'arribos': [{'fecha': d.strftime('%Y-%m-%d'), 'nidos': int(n)}
-                            for d, n in sorted(arribos_reg.items())],
-            }
-
-    return jsonify({
-        'registro':              registro,
-        'densidad_max_nidos_m2': DENSIDAD_MAX_NIDOS_M2,
-        'dias_hasta_excavacion': DIAS_HASTA_EXCAVACION,
-        'dias_incubacion':       dias_inc,
-        'anio_datos':            anio,
-        'fuente_datos':          fuente_datos,
-        'corrales':              corrales,
-        'capacidad_total':       cap_total,
-        'area_total_m2':         area_total,
-        'nidos_temporada':       int(sum(por_mes.values())),
-        'pico_ocupacion':        round(r['pico_ocupacion']),
-        'fecha_pico':            r['fecha_pico'].strftime('%Y-%m-%d'),
-        'cobertura_del_pico':    round(r['cobertura_del_pico'], 4),
-        'deficit_maximo':        round(r['deficit_maximo']),
-        'dias_con_deficit':      r['dias_con_deficit'],
-        'area_faltante_m2':      round(r['area_faltante_m2']),
-        'separacion_en_pico_m':  round(separacion_implicita(area_total, 1.0, r['pico_ocupacion']), 2),
-        'ventana_inicio':        min(con_deficit).strftime('%Y-%m-%d') if con_deficit else None,
-        'ventana_fin':           max(con_deficit).strftime('%Y-%m-%d') if con_deficit else None,
-        'serie': [{'fecha': d.strftime('%Y-%m-%d'),
-                   'ocupados': round(v['ocupados']),
-                   'deficit':  round(v['deficit'])}
-                  for d, v in serie.items() if d.year == anio],
-    })
 
 
 @app.route('/api/corral-temporada')
@@ -584,7 +722,18 @@ def corral_temporada():
 
     alerta_calor = {
         'activada': pct >= 75.0,
-        'mensaje': "Atención: Capacidad de incubación alta (>75%). El calor metabólico acumulado puede elevar la temperatura de la arena por encima del umbral crítico de 29.7°C, induciendo feminización de crías (sesgo de género) y afectando la viabilidad embrionaria." if pct >= 75.0 else None
+        # El hacinamiento NO feminiza. Honarvar et al. (2008) hallaron
+        # diferencias de temperatura entre densidades solo en los dias 37, 40
+        # y 47; el periodo termosensible de la golfina va del dia 17 al 33, de
+        # modo que cuando el apinamiento calienta la arena el sexo ya quedo
+        # determinado. Lo que cuesta el hacinamiento es ECLOSION, y en el
+        # tercio final, riesgo de rebasar el limite letal.
+        'mensaje': ("Atención: ocupación del corral por encima del 75 %. Al apretarse "
+                    "los nidos sube la densidad local y cada nido pierde eclosión según "
+                    "la curva de Honarvar et al. (2008); además el calor metabólico del "
+                    "último tercio acerca la arena al límite letal de 36 °C. No altera la "
+                    "proporción sexual: el sexo se determina entre los días 17 y 33, antes "
+                    "de que el hacinamiento caliente la arena.") if pct >= 75.0 else None
     }
 
     clustering = obtener_clustering(nidos)
@@ -625,165 +774,6 @@ def handle_exception(e):
     }), 500
 
 
-
-
-@app.route('/api/prediccion')
-def prediccion_termica():
-    """Crias esperadas y proporcion sexual para un escenario de manejo.
-
-    Parametros de consulta (todos opcionales):
-        mes        1-12, mes de siembra (por omision 9, el pico)
-        nidos      numero de nidos a alojar (por omision la capacidad segura)
-        huevos     tamano de nidada (por omision el de referencia)
-        area_m2    superficie disponible (por omision la del corral 1)
-
-    Compara el mismo escenario con y sin malla sombra, que es la intervencion
-    barata documentada por Hill et al. (2015).
-    """
-    import termico
-    from cromosoma import cargar_csv
-
-    mes    = int(request.args.get('mes', 9))
-    # Por omision se usa la nidada medida en Puerto Arista para ese mes
-    # (Corzo-Dominguez y Romero-Berny 2025), no un promedio anual.
-    huevos = float(request.args.get('huevos', termico.huevos_del_mes(mes)))
-
-    corral_rows = cargar_csv(os.path.join(CSV_DIR, 'corral_incubacion.csv'))
-    corral = {r['campo']: r['valor'] for r in corral_rows}
-    area_m2 = float(request.args.get('area_m2', corral.get('area_m2', 240)))
-
-    capacidad = int(area_m2)          # 1 nido/m2, densidad maxima documentada
-    nidos = int(request.args.get('nidos', capacidad))
-
-    densidad = nidos / area_m2 if area_m2 > 0 else 0.0
-    tasa_base = 0.75                  # golfina, tasa_eclosion.csv
-
-    escenarios = {}
-    for etiqueta, sombra in (('sin_sombra', False), ('con_sombra', True)):
-        p = termico.predecir_nido(mes=mes, n_huevos=huevos,
-                                  tasa_base_especie=tasa_base,
-                                  densidad_m2=densidad, sombra=sombra)
-        escenarios[etiqueta] = {
-            'tasa_eclosion':   p['tasa_eclosion'],
-            'crias_por_nido':  p['crias_esperadas'],
-            'crias_totales':   round(p['crias_esperadas'] * nidos, 0),
-            'pct_hembras':     p['proporcion_sexual']['pct_hembras'],
-            'pct_machos':      p['proporcion_sexual']['pct_machos'],
-            'temp_pts_c':      p['proporcion_sexual']['temp_pts_c'],
-            'temp_final_c':    p['riesgo_termico']['temp_ultimo_tercio_c'],
-            'margen_letal_c':  p['riesgo_termico']['margen_c'],
-            'en_riesgo':       p['riesgo_termico']['en_riesgo'],
-        }
-
-    # ------------------------------------------------------------------
-    #  Lo que ya esta sembrado en el corral
-    # ------------------------------------------------------------------
-    # Los escenarios de arriba responden "si meto N nidos, que pasa". Esto
-    # responde algo mas util: los nidos que YA estan enterrados, con su
-    # posicion real, su fecha de siembra y la densidad que de verdad tienen
-    # alrededor, que no es la densidad media del corral.
-    corral_actual = None
-    try:
-        hoy = datetime.today().strftime('%Y-%m-%d')
-        activos = [n for n in REGISTRO.obtener_nidos_activos(hoy, BASE)
-                   if not n.get('eclosionado', False)]
-    except Exception:
-        activos = []
-
-    if activos:
-        coords = [(float(n['x']), float(n['y'])) for n in activos]
-        dens_locales = termico.densidades_locales(coords)
-
-        por_nido = []
-        for n, dloc in zip(activos, dens_locales):
-            try:
-                mes_n = datetime.strptime(n['fecha_siembra'], '%Y-%m-%d').month
-            except (KeyError, ValueError):
-                mes_n = mes
-            huevos_n = termico.huevos_del_mes(mes_n)
-            por_nido.append(termico.predecir_nido(
-                mes=mes_n, n_huevos=huevos_n,
-                tasa_base_especie=float(BASE.get(n.get('especie', 'golfina'), {})
-                                        .get('tasa_eclosion', 0.75)),
-                densidad_m2=dloc, prof_cm=n.get('prof'),
-            ))
-
-        resumen = termico.predecir_conjunto(por_nido)
-        sin_hacinamiento = sum(
-            termico.huevos_del_mes(
-                datetime.strptime(n['fecha_siembra'], '%Y-%m-%d').month
-                if n.get('fecha_siembra') else mes
-            ) * float(BASE.get(n.get('especie', 'golfina'), {}).get('tasa_eclosion', 0.75))
-            for n in activos
-        )
-        corral_actual = dict(resumen)
-        corral_actual.update({
-            'densidad_media_m2':  round(sum(dens_locales) / len(dens_locales), 2),
-            'densidad_maxima_m2': round(max(dens_locales), 2),
-            'crias_sin_hacinamiento': round(sin_hacinamiento, 0),
-            'crias_perdidas': round(sin_hacinamiento - resumen['crias_esperadas'], 0),
-            'meses_de_siembra': sorted({
-                n['fecha_siembra'][:7] for n in activos if n.get('fecha_siembra')
-            }),
-        })
-
-    return jsonify({
-        'mes': mes,
-        'nidos': nidos,
-        'area_m2': area_m2,
-        'densidad_nidos_m2': round(densidad, 2),
-        'capacidad_a_norma': capacidad,
-        'huevos_por_nido': huevos,
-        'escenarios': escenarios,
-        'corral_actual': corral_actual,
-        'advertencia_temp_base': termico.TEMP_BASE_FUENTE,
-        'fuentes': {
-            'densidad_eclosion': 'Honarvar, O\'Connor y Spotila (2008), Oecologia 157:221-230',
-            'sombra':            'Hill et al. (2015), PLOS ONE 10(6):e0129528',
-            'calor_metabolico':  'Carbonell Ellgutter et al. (2025), Ecol Evol 15(7):e71750',
-            'sexo':              'Sandoval, Gomez-Munoz y Porta-Gandara (2020), Inv. y Ciencia 28(80):14-21',
-        },
-    })
-
-
-@app.route('/api/recomendacion')
-def recomendacion_capacidad():
-    """Cuantos nidos conviene alojar y que cuesta rebasarlo.
-
-    Parametros: nidos (obligatorio), corral (id, por omision 1), huevos,
-    supervivencia_fuera (fraccion de crias que se salvan de los nidos que no
-    entren; por omision 0.0, el peor caso).
-    """
-    import capacidad as cap
-    from cromosoma import cargar_csv
-
-    n = request.args.get('nidos', type=int)
-    if not n or n <= 0:
-        return jsonify({'error': 'Falta el parametro nidos (entero positivo).'}), 400
-
-    corral_id = request.args.get('corral', '1')
-    filas = cargar_csv(os.path.join(CSV_DIR, 'corrales.csv'))
-    fila = next((f for f in filas if f['corral_id'] == str(corral_id)), None)
-    if fila is None:
-        return jsonify({'error': 'No existe el corral %s.' % corral_id}), 404
-
-    import termico
-    mes_rec = request.args.get('mes', default=9, type=int)
-    huevos_rec = request.args.get('huevos', type=float)
-    if huevos_rec is None:
-        huevos_rec = termico.huevos_del_mes(mes_rec)
-
-    r = cap.recomendacion(
-        float(fila['largo_m']), float(fila['ancho_m']), n,
-        huevos_por_nido=huevos_rec,
-        supervivencia_fuera=request.args.get('supervivencia_fuera',
-                                             default=0.0, type=float),
-    )
-    r['corral'] = {'id': fila['corral_id'], 'nombre': fila['nombre'],
-                   'largo_m': float(fila['largo_m']),
-                   'ancho_m': float(fila['ancho_m']),
-                   'fuente': fila.get('fuente', '')}
-    return jsonify(r)
 
 
 # Arranque como script. Tiene que quedar al final del archivo: app.run()

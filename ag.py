@@ -11,7 +11,11 @@ _PROB_MUT   = 0.15
 
 
 def ejecutar_ag(nidos_entrada, gestor, base, corral,
-                nidos_ocupados=None, callback=None):
+                nidos_ocupados=None, callback=None, mes=None):
+    """`mes` es el mes de siembra (1-12). Importa: de él dependen la
+    temperatura base de la arena y el tamaño de la nidada, y por tanto la
+    proporción sexual que el AG intenta alcanzar. Sin él la aptitud evaluaba
+    siempre septiembre, porque los genes que crea el AG no llevan fecha."""
    
     previos_raw = nidos_ocupados or []
     
@@ -48,8 +52,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
         _TAM_POB, nidos_entrada, gestor, base, previos_raw)
 
     # ── 2. Evaluación inicial ──────────────────────────────────────────────────
-    # Usar fitness científico (coeficientes de literatura, no pesos inventados)
-    evaluar_poblacion(poblacion, gestor, base, corral, previos_cache, modo='cientifico')
+    evaluar_poblacion(poblacion, gestor, base, corral, previos_cache, mes)
     mejor_global = max(poblacion, key=lambda i: i.fitness).copia()
     _registrar(h, poblacion, mejor_global)
 
@@ -74,7 +77,7 @@ def ejecutar_ag(nidos_entrada, gestor, base, corral,
             h2 = mutacion_combinada(h2, _PROB_MUT, base, gestor, previos_cache)
             descendencia.extend([h1, h2])
 
-        evaluar_poblacion(descendencia, gestor, base, corral, previos_cache, modo='cientifico')
+        evaluar_poblacion(descendencia, gestor, base, corral, previos_cache, mes)
         poblacion = poda_elitismo(poblacion, descendencia, _TAM_POB, n_elite=2)
 
         mejor_actual = max(poblacion, key=lambda i: i.fitness)

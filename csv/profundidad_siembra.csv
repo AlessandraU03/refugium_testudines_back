@@ -1,4 +1,4 @@
-especie,profundidad_minima_cm,profundidad_optima_cm,profundidad_maxima_cm,sigma_cm,fuente
-golfina,40,45,50,3.33,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1: profundidad total 40-50 cm; optima 45 cm segun Corzo-Dominguez y Romero-Berny 2025. sigma derivado = (max - opt) / 1.5"
-prieta,50,60,70,6.67,"NO COINCIDE con NOM-162 Tabla 1, que da 45-50/60 cm para Chelonia; especie fuera del alcance actual del proyecto"
-laud,60,70,80,6.67,"NO COINCIDE con NOM-162 Tabla 1, que da 75-85 cm para Dermochelys; especie fuera del alcance actual del proyecto"
+especie,profundidad_minima_cm,profundidad_optima_cm,profundidad_maxima_cm,sigma_cm,supuesto,fuente
+golfina,40,45,50,3.33,no,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1: profundidad total 40-50 cm; optima 45 cm segun Corzo-Dominguez y Romero-Berny 2025. sigma derivado = (max - opt) / 1.5"
+prieta,45,50,60,6.67,no,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1 para Chelonia: 45-60 cm, optima 50 cm. CORRIGE los 50/60/70 cm anteriores, que no correspondian a la norma. sigma derivado = (max - opt) / 1.5"
+laud,75,80,85,3.33,no,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1 para Dermochelys: 75-85 cm, optima 80 cm. CORRIGE los 60/70/80 cm anteriores, que no correspondian a la norma. Coincide con la profundidad de 75 cm a la que Hill et al. (2015) midieron el efecto de la sombra. sigma derivado = (max - opt) / 1.5"

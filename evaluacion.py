@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 #   máximo: golfina condiciones perfectas = 0.90
 _TASA_MIN_ABS = 0.40
 _TASA_MAX_ABS = 0.90
-_RANGO_ABS    = _TASA_MAX_ABS - _TASA_MIN_ABS   # 0.50
 
 
 def calcular_pts_window(fecha_siembra_dt, especie, base):
@@ -75,11 +74,6 @@ def calcular_semana_incubacion(fecha_siembra_dt, fecha_actual_dt, base, especie)
         'en_pts': en_pts,
         'semana_critica': (semana == e.get('semana_critica', 3))
     }
-
-
-def _norm_v1(v):
-    """Normaliza V1 al rango [0,1] con los extremos absolutos del CSV."""
-    return float(np.clip((v - _TASA_MIN_ABS) / _RANGO_ABS, 0.0, 1.0))
 
 
 def _previos_por_especie(nidos_previos):
@@ -180,103 +174,26 @@ def calcular_v1(individuo, base, nidos_previos=None):
     return round(float(np.clip(v1, _TASA_MIN_ABS, _TASA_MAX_ABS)), 6)
 
 
-# ── V2 (Antes V3) — Violaciones de Separación Mínima ───────────────────────────
+# ── FITNESS ──────────────────────────────────────────────────────
 
-def calcular_v2(individuo, base, nidos_previos=None):
-   
-    genes = individuo.genes
-    N     = len(genes)
-    if N == 0:
-        return 0.0
+def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None,
+                     mes=None):
+    """Aptitud de una colocación.
 
-    if isinstance(nidos_previos, dict) and "__cache__" in nidos_previos:
-        por_esp_prev = nidos_previos
-    else:
-        por_esp_prev = _previos_por_especie(nidos_previos)
-    por_esp_new  = {}
-    for g in genes:
-        por_esp_new.setdefault(g.especie, []).append(g)
-
-    pares_total = 0
-    pares_malos = 0
-
-    for esp, gs in por_esp_new.items():
-        n_new = len(gs)
-        sep   = base[esp]['sep_min']
-        xs_n  = np.array([g.x for g in gs])
-        ys_n  = np.array([g.y for g in gs])
-
-        # (a) nuevo-vs-nuevo (triángulo superior, sin diagonal)
-        if n_new > 1:
-            dx   = xs_n[:, None] - xs_n[None, :]
-            dy   = ys_n[:, None] - ys_n[None, :]
-            dist_sq = dx**2 + dy**2
-            mask = np.triu(np.ones((n_new, n_new), bool), 1)
-            pares_total += int(mask.sum())
-            pares_malos += int((dist_sq[mask] < sep**2).sum())
-
-        # (b) nuevo-vs-previo
-        p_data = por_esp_prev.get(esp)
-        if p_data and len(p_data[0]) > 0:
-            xs_p = p_data[0] if isinstance(p_data[0], np.ndarray) else np.array(p_data[0])
-            ys_p = p_data[1] if isinstance(p_data[1], np.ndarray) else np.array(p_data[1])
-            n_p  = len(xs_p)
-            dx   = xs_n[:, None] - xs_p[None, :]
-            dy   = ys_n[:, None] - ys_p[None, :]
-            dist_sq = dx**2 + dy**2
-            pares_total += n_new * n_p
-            pares_malos += int((dist_sq < sep**2).sum())
-
-    return round(pares_malos / pares_total, 6) if pares_total > 0 else 0.0
+    Aquí convivían dos funciones de aptitud: ésta y otra, llamada tradicional,
+    que restaba tres variables con pesos elegidos a mano. El AG nunca la
+    llamaba, pero era el valor por omisión del parámetro, así que una llamada
+    distraída evaluaba con pesos inventados y daba otro resultado. El sistema
+    tiene ahora una sola función de aptitud y todos sus coeficientes citados.
+    """
+    return calcular_fitness_cientifico(individuo, gestor, base, corral,
+                                       nidos_previos, mes)
 
 
-# ── V3 — Desviación de Profundidad ────────────────────────────────────────────
-
-def calcular_v3(individuo, base):
-   
-    genes = individuo.genes
-    N     = len(genes)
-    if N == 0:
-        return 0.0
-    total = 0.0
-    for g in genes:
-        e     = base[g.especie]
-        rango = e['prof_max'] - e['prof_min']
-        desv  = abs(g.prof - e['prof_opt']) / rango if rango > 0 else 0.0
-        total += min(desv, 1.0)
-    return round(total / N, 6)
-
-
-# ── FITNESS ─────────────────────────────────────────────────────────────────────
-
-def calcular_fitness(individuo, gestor, base, corral, nidos_previos=None, modo='tradicional'):
-
-    if individuo.num_nidos() == 0:
-        individuo.fitness = 0.0
-        individuo.v1 = individuo.v2 = individuo.v3 = 0.0
-        return 0.0
-
-    if modo == 'cientifico':
-        return calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos)
-
-    # Modo tradicional (default): usa pesos arbitrarios
-    v1_raw = calcular_v1(individuo, base, nidos_previos)
-    v2     = calcular_v2(individuo, base, nidos_previos)
-    v3     = calcular_v3(individuo, base)
-
-    v1_norm = _norm_v1(v1_raw)
-    fitness = v1_norm - (v2 + v3) / 2.0
-
-    individuo.fitness = round(float(fitness), 6)
-    individuo.v1      = v1_raw
-    individuo.v2      = v2
-    individuo.v3      = v3
-    return individuo.fitness
-
-
-def evaluar_poblacion(poblacion, gestor, base, corral, nidos_previos=None, modo='tradicional'):
+def evaluar_poblacion(poblacion, gestor, base, corral, nidos_previos=None,
+                      mes=None):
     for ind in poblacion:
-        calcular_fitness(ind, gestor, base, corral, nidos_previos, modo=modo)
+        calcular_fitness(ind, gestor, base, corral, nidos_previos, mes)
     return poblacion
 
 
@@ -392,6 +309,11 @@ def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
     if not genes:
         return 1.0
 
+    # Cada individuo puede llevar su propio reparto de franjas, asi que la
+    # rejilla contra la que se juzga su orden de llenado es la de SU reparto.
+    from cromosoma import resolver_gestor
+    gestor = resolver_gestor(gestor, getattr(individuo, 'idx_orden', 0))
+
     por_esp = {}
     for g in genes:
         por_esp.setdefault(g.especie, []).append(g)
@@ -400,9 +322,10 @@ def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
     en_orden = 0
 
     for esp, gs in por_esp.items():
-        n_req = len(gs) + sum(1 for q in previos if q.get('especie') == esp)
-        slots = gestor.slots_ordenados(f"zona_{esp}", base[esp]['sep_min'],
-                                       previos, n_requeridos=n_req)
+        # La misma rejilla que usa quien coloca. Pedirla de otro modo hacia que
+        # este termino le diera 0.0000 al llenado secuencial.
+        slots = gestor.slots_suficientes(f"zona_{esp}", base[esp]['sep_min'],
+                                         previos, len(gs))
         prefijo = {(round(x, 1), round(y, 1)) for x, y in slots[:len(gs)]}
         en_orden += sum(1 for g in gs
                         if (round(g.x, 1), round(g.y, 1)) in prefijo)
@@ -416,25 +339,103 @@ def calcular_orden_operativo(individuo, gestor, base, nidos_previos=None):
 # biológica mayor a ese margen (escalarización lexicográfica).
 _EPS_ORDEN = 0.01
 
-# Regiones sombreadas del corral, en centímetros: [{'xmin','ymin','xmax','ymax'}].
-# Vacío = corral sin sombra, que es el estado actual de Puerto Arista. Se llena
-# para evaluar la intervención de malla sombra.
-SOMBRAS = []
+# Regiones sombreadas del corral, en centímetros, leídas de csv/sombra_corral.csv.
+#
+# La sombra es POSICIONAL: `termico.en_sombra(x, y, ...)` decide nido por nido.
+# Si la malla cubre el corral entero, todos los nidos reciben el mismo trato y
+# la posición no influye en el sexo. Si cubre sólo una parte, dónde queda cada
+# nido decide su proporción sexual, y ahí el AG tiene un problema real que
+# resolver: en septiembre el rango entre estar bajo la malla o no son 45 puntos
+# porcentuales de hembras.
+#
+# La cobertura real del corral de Puerto Arista NO está confirmada. El CSV
+# asume el corral completo y lo declara.
+def _cargar_sombras(carpeta_csv=None):
+    """Lee las regiones sombreadas. Lista vacía si no hay archivo."""
+    import os
+    from cromosoma import cargar_csv
+
+    # Una sola fuente: la malla de csv/sitio.csv. Antes existia ademas
+    # sombra_corral.csv, que decia cobertura completa mientras sitio.csv decia
+    # 0-1800 cm; dos configuraciones de la misma malla que se contradecian.
+    try:
+        import solar
+        m = solar.cargar_sitio(carpeta_csv)['malla']
+        return [dict(m)]
+    except Exception:
+        return []
 
 
-def _indice_eclosion(individuo, base, nidos_previos=None):
-    """Fracción de crías que sobrevive al hacinamiento de esta colocación.
+SOMBRAS = _cargar_sombras()
 
-    Devuelve 1.0 cuando ningún nido supera la densidad de referencia y baja
-    conforme los nidos se apiñan, según la curva de Honarvar et al. (2008).
+
+# Proporción sexual de referencia, en porcentaje de hembras.
+#
+# NO es un 50/50 por simetría: las poblaciones de tortuga marina son
+# naturalmente sesgadas hacia hembras, y forzar el equilibrio no tiene respaldo.
+# Es la proporción que implica la temperatura MEDIDA en un corral mexicano
+# comparable: de la Torre-Robles, Buenrostro-Silva y García-Grajales (2017)
+# registraron 30.1 °C durante el segundo tercio de la incubación en nidos de
+# golfina a ~45 cm en el corral de San Juan Chacahua, Oaxaca, con 86.6 % de
+# eclosión. Esa temperatura, en la ecuación de Girondot con los parámetros de
+# Sandoval et al. (2020), da 55.9 % de hembras.
+#
+# ADVERTENCIA: el modelo estima 32.01 °C para Puerto Arista en septiembre,
+# casi dos grados por encima de esa medición. De esa diferencia depende que el
+# corral produzca 96 % o 56 % de hembras. Mientras no se mida la arena del
+# corral, este objetivo orienta la búsqueda pero sus cifras no son un hallazgo.
+OBJETIVO_PCT_HEMBRAS = 55.9
+
+# Peso del objetivo de sexo. Misma escalarización lexicográfica que _EPS_ORDEN:
+# la proporción sexual sólo desempata entre colocaciones que ya son
+# equivalentes en eclosión. El orden no es arbitrario: una cría que no eclosiona
+# no tiene sexo, así que el sexo no puede comprarse con crías perdidas.
+_EPS_SEXO = 0.05
+
+
+_SITIO_CACHE = None
+
+
+def _sitio():
+    """Configuracion del sitio (latitud, orientacion, malla), leida una vez.
+
+    Devuelve None si no hay csv/sitio.csv, y entonces el modelo termico cae al
+    criterio binario de sombra que habia antes. Asi el sistema sigue corriendo
+    en una instalacion que no haya declarado su geometria.
+    """
+    global _SITIO_CACHE
+    if _SITIO_CACHE is None:
+        try:
+            import solar
+            _SITIO_CACHE = solar.cargar_sitio()
+        except Exception:
+            _SITIO_CACHE = False
+    return _SITIO_CACHE or None
+
+
+def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None):
+    """Corre el modelo térmico sobre esta colocación y devuelve todo de una vez.
+
+    De aquí salen los tres términos biológicos de la aptitud: cuántas crías
+    sobreviven al hacinamiento, qué proporción sexual resulta, y cuántos nidos
+    quedan por encima del límite letal. Se calculan juntos porque los tres
+    salen del mismo recorrido por los nidos.
+
     Los nidos ya sembrados en jornadas anteriores cuentan como vecinos: un
     nido nuevo no puede ignorar lo que ya está enterrado a su lado.
+
+    Sobre `mes`: antes se deducía de `genes[0].fecha_siembra`, que SIEMPRE vale
+    None en los genes que construye el AG. El resultado es que la aptitud
+    evaluaba septiembre sin importar la fecha de la jornada. Para la eclosión
+    daba igual, porque sólo depende de la densidad; para la proporción sexual
+    habría sido un error grave. Ahora se recibe explícitamente.
     """
     import termico
 
     genes = list(individuo.genes)
     if not genes:
-        return 1.0
+        return {'indice_eclosion': 1.0,
+                'resumen': termico.predecir_conjunto([]), 'por_nido': []}
 
     previos = _previos_lista(nidos_previos)
     vecinos = genes + [
@@ -445,36 +446,84 @@ def _indice_eclosion(individuo, base, nidos_previos=None):
     ]
 
     tasas = {e: base[e].get('tasa_eclosion', 0.75) for e in base}
-    mes = None
-    if genes and getattr(genes[0], 'fecha_siembra', None):
+    if mes is None and getattr(genes[0], 'fecha_siembra', None):
         try:
             mes = datetime.strptime(genes[0].fecha_siembra, '%Y-%m-%d').month
         except (ValueError, TypeError):
             mes = None
 
-    r = termico.evaluar_colocacion(vecinos, tasas, mes=mes,
-                                   rectangulos_sombra=SOMBRAS)
-    return r['indice_eclosion']
+    # Pivote y parametro de forma propios de cada especie. Sin esto, prieta y
+    # laud se evaluaban con la pivote de golfina, que esta 0.75 C mas arriba
+    # que la de prieta: mas de veinte puntos de diferencia en la proporcion de
+    # hembras dentro de la zona empinada de la curva.
+    params_especie = {
+        e: {'pivote': base[e].get('pivote_temp'),
+            's': base[e].get('s_parameter')}
+        for e in base
+    }
+
+    # Dia del anio para la geometria solar. Se toma el dia 15 del mes de
+    # siembra: la declinacion solar cambia unos 0.3 grados por dia, asi que
+    # dentro de un mes la trayectoria del sol se mueve poco, y la arena a 45 cm
+    # responde al promedio de varios dias, no a la insolacion de una fecha
+    # exacta. Usar el mes evita arrastrar la fecha completa por las firmas del
+    # AG; si algun dia hace falta precision diaria, hay que threadearla.
+    dia = None
+    sitio = _sitio()
+    if mes is not None:
+        dia = (int(mes) - 1) * 30 + 15
+
+    return termico.evaluar_colocacion(
+        vecinos, tasas, mes=mes, rectangulos_sombra=SOMBRAS,
+        huevos_por_defecto=termico.huevos_del_mes(mes) if mes else None,
+        sitio=sitio, dia_del_anio=dia, params_especie=params_especie)
 
 
-def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=None):
+def _indice_eclosion(individuo, base, nidos_previos=None, mes=None):
+    """Sólo el índice de eclosión. Se conserva por compatibilidad."""
+    return _evaluar_colocacion_termica(
+        individuo, base, nidos_previos, mes)['indice_eclosion']
+
+
+def calcular_fitness_cientifico(individuo, gestor, base, corral,
+                                nidos_previos=None, mes=None):
     """
-    Fitness basado en parámetros documentados, más un desempate operativo.
+    Aptitud de una colocación, con todos los coeficientes citados.
 
-        biológico = V1_norm × (efecto_prof + efecto_sep) / 2
-        fitness   = (biológico + _EPS_ORDEN × orden) / (1 + _EPS_ORDEN)
+        eclosión = crías que sobreviven al hacinamiento (Honarvar et al. 2008)
+        prof     = cumplimiento del rango de la NOM-162 (40–50 cm en golfina)
+        letal    = fracción de nidos por debajo de los 36 °C del último tercio
+        sexo     = cercanía a la proporción sexual de referencia
 
-    Componentes:
-      - V1: tasa de eclosión estimada (tasa_eclosion.csv)
-      - efecto_prof: desviación respecto a la profundidad óptima de la especie
-        (profundidad_siembra.csv, NOM-162-SEMARNAT-2012)
-      - efecto_sep: separación mínima por especie (separacion_minima.csv)
-      - orden: llenado secuencial, criterio operativo, no biológico
+        biológico = eclosión × prof × letal
+        fitness   = (biológico + _EPS_SEXO × sexo + _EPS_ORDEN × orden)
+                    / (1 + _EPS_SEXO + _EPS_ORDEN)
 
-    Advertencia sobre el alcance real: con las dimensiones documentadas del
-    corral y la rejilla basada en sep_min, `efecto_sep` vale 1.0 en la práctica
-    (la rejilla ya garantiza la separación). El único factor que varía es
-    `efecto_prof`. No presentar esto como una función multi-factor sin aclararlo.
+    POR QUÉ SE QUITÓ EL TÉRMINO DE SEPARACIÓN
+    -----------------------------------------
+    Antes la aptitud era `eclosión × (prof + separación) / 2`. Ese término
+    contaba qué fracción de nidos respeta los 100 cm de la NOM-162, y se
+    volvía perverso justo cuando más importa. Medido con 270 nidos en el
+    corral de 240 m²: la rejilla tiene que apretarse a 88.9 cm, de modo que
+    NINGÚN nido puede cumplir la norma y el llenado uniforme —que es el óptimo
+    biológico, densidad 1.00 nidos/m² en todo el corral— obtenía separación
+    0.000 y aptitud 0.500. El AG subía ese conteo a 0.72 separando unos nidos
+    y apiñando otros hasta 3 nidos/m², y alcanzaba aptitud 0.86 produciendo
+    DIEZ CRÍAS MENOS. Un término no biológico le estaba ganando a la curva
+    medida de Honarvar.
+
+    La separación sigue siendo obligatoria, pero donde corresponde: la rejilla
+    de `slots_ordenados` la impone al construir las casillas, y aquí se reporta
+    como métrica de cumplimiento (`individuo.v2`), no como objetivo.
+
+    SOBRE LOS DOS EPSILON
+    ---------------------
+    Escalarización lexicográfica, el mismo patrón que ya usaba el orden de
+    llenado. No son pesos elegidos a mano para balancear objetivos: son
+    márgenes tan pequeños que sólo desempatan entre colocaciones ya
+    equivalentes en lo biológico. El orden de prioridad tiene una razón, no una
+    preferencia: una cría que no eclosiona no tiene sexo, así que la proporción
+    sexual nunca puede comprarse con crías perdidas.
 
     Returns:
         float [0.0, 1.0]
@@ -484,44 +533,59 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral, nidos_previos=N
         individuo.v1 = individuo.v2 = individuo.v3 = 0.0
         return 0.0
 
-    # V1: rendimiento de eclosión de la colocación concreta.
-    #
-    # Antes esto era la tasa de la especie leída del CSV, un valor constante
-    # que no dependía de dónde quedaran los nidos: el AG no tenía gradiente
-    # sobre el que trabajar. Ahora se calcula el índice de eclosión del
-    # modelo térmico, que aplica la curva densidad-eclosión medida por
-    # Honarvar et al. (2008) a la vecindad real de cada nido.
-    #
-    # Mientras la colocación respete la separación documentada, la densidad
-    # local queda en 1 nido/m², el factor vale 1.0 y el índice es 1.0: por
-    # debajo de la norma, mover un nido efectivamente no cambia nada. El
-    # término solo empieza a discriminar cuando el corral se satura y hay que
-    # apretar los nidos, que es la situación real durante 97 días al año.
-    v1_raw = calcular_v1(individuo, base, nidos_previos)
-    v1_norm = _indice_eclosion(individuo, base, nidos_previos)
+    # Un solo recorrido del modelo térmico da los tres términos biológicos.
+    r = _evaluar_colocacion_termica(individuo, base, nidos_previos, mes)
+    resumen = r['resumen']
+    eclosion = r['indice_eclosion']
 
-    # Efecto profundidad: promedio de factor por cada nido
+    # Riesgo letal: los nidos que rebasarían 36 °C en el último tercio no son
+    # un matiz, son nidada perdida. Entra como factor, no como desempate.
+    n_nidos = max(1, resumen['n_nidos'])
+    letal = 1.0 - resumen['nidos_en_riesgo_termico'] / float(n_nidos)
+
+    # Sexo: distancia a la proporción de referencia, normalizada a [0,1].
+    sexo = 1.0 - abs(resumen['pct_hembras'] - OBJETIVO_PCT_HEMBRAS) / 100.0
+    sexo = float(np.clip(sexo, 0.0, 1.0))
+
     efecto_prof = np.mean([
         calcular_efecto_profundidad_cientifico(
             g.prof, base[g.especie]['prof_min'], base[g.especie]['prof_max'])
         for g in individuo.genes
     ]) if individuo.genes else 1.0
 
-    # Efecto separación: separación mínima documentada por especie
+    # Cumplimiento de separación: se mide y se reporta, ya no es objetivo.
     efecto_sep = calcular_efecto_separacion_cientifico(individuo.genes, base)
 
-    # Combinar factores: V1 penalizada por profundidad y separación
-    factor_combinado = (efecto_prof + efecto_sep) / 2.0
-    biologico = float(np.clip(v1_norm * factor_combinado, 0.0, 1.0))
+    # Cumplimiento de la densidad máxima recomendada: 1 nido/m²
+    # (Best Practices IOTN 2018; NOM-162-SEMARNAT-2012).
+    #
+    # Hace falta porque la curva de Honarvar es PLANA por debajo de 2 nidos/m²:
+    # su densidad más baja ensayada fue 2, así que no tiene nada que decir de
+    # lo que pasa entre 1 y 2. Sin este término el AG puede duplicar la norma
+    # del corral sin pagar nada, y medido hacía justo eso: derivaba a 2.0
+    # nidos/m² mientras el llenado uniforme se mantenía en 1.0.
+    #
+    # Se mide como densidad y no como distancia entre pares, que es lo que
+    # hacía el término de separación que se retiró. La diferencia es que esto
+    # NO es degenerado cuando el corral se satura: la fracción de nidos dentro
+    # de la norma es continua y la maximiza precisamente el llenado uniforme,
+    # así que empuja hacia el óptimo biológico en vez de pelearse con él.
+    import termico
+    dens_nidos = [p['densidad_m2'] for p in r['por_nido']]
+    cumple_dens = (sum(1 for d in dens_nidos
+                       if d <= termico.DENSIDAD_MAX_NIDOS_M2)
+                   / float(len(dens_nidos))) if dens_nidos else 1.0
 
-    # El orden de llenado sólo desempata; nunca desplaza al criterio biológico
+    biologico = float(np.clip(
+        eclosion * efecto_prof * letal * cumple_dens, 0.0, 1.0))
     orden = calcular_orden_operativo(individuo, gestor, base, nidos_previos)
-    fitness_final = (biologico + _EPS_ORDEN * orden) / (1.0 + _EPS_ORDEN)
+    fitness_final = ((biologico + _EPS_SEXO * sexo + _EPS_ORDEN * orden)
+                     / (1.0 + _EPS_SEXO + _EPS_ORDEN))
 
     individuo.fitness = round(float(fitness_final), 6)
-    individuo.indice_eclosion = round(float(v1_norm), 4)
-    individuo.v1 = v1_raw
-    individuo.v2 = 1.0 - efecto_sep  # Inversión: v2 original era violaciones
+    individuo.indice_eclosion = round(float(eclosion), 4)
+    individuo.v1 = calcular_v1(individuo, base, nidos_previos)
+    individuo.v2 = 1.0 - efecto_sep   # incumplimiento de separación, métrica
     individuo.v3 = 1.0 - efecto_prof
     individuo.orden = orden
 

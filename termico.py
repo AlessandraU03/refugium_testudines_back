@@ -59,6 +59,22 @@ CURVA_ECLOSION_DENSIDAD = [
 ]
 DENSIDAD_REFERENCIA_M2 = 2.0   # densidad mas baja ensayada; sirve de base 1.0
 
+# --- Densidad maxima recomendada en corral. No es una distancia sino una
+#     densidad, y el motivo documentado es triple: calor metabolico entre
+#     nidos vecinos, disponibilidad de gases respiratorios, y espacio para que
+#     el personal circule.
+#       "Maintain a density of 1 nest/m2 to minimise the effects of adjacent
+#        nests on temperature and respiratory gas availability, and allow
+#        space for hatchery workers to move."
+#       Best Practices in Sea Turtle Hatchery Management for South Asia
+#       (2018), citando a Mortimer et al. (1999), Shanker et al. (2003),
+#       Ahmad et al. (2004) y Maulany et al. (2012).
+#     Coincide con la separacion de 1 m que la NOM-162-SEMARNAT-2012 fija para
+#     golfina y que Corzo-Dominguez y Romero-Berny (2025) documentan en el
+#     corral de Puerto Arista. Es el umbral contra el que el AG compara la
+#     densidad local que produce cada colocacion.
+DENSIDAD_MAX_NIDOS_M2 = 1.0
+
 #     Temperatura en playa natural: zona de baja densidad 32.7 C contra zona
 #     de alta densidad 35.3 C. Los autores no precisan la densidad numerica de
 #     esas dos zonas, asi que el gradiente por nido/m2 es DERIVADO, no citado.
@@ -128,6 +144,33 @@ DELTA_T_SOMBRA_C        = -2.2   # sombra sola
 DELTA_T_RIEGO_C         = -2.3   # riego promedio (323 mm)
 DELTA_T_SOMBRA_RIEGO_C  = -4.0   # sombra + riego
 
+#     El efecto de la sombra DEPENDE DE LA PROFUNDIDAD, y Hill et al. lo
+#     midieron a las dos profundidades que importan aqui:
+#         45 cm (golfina) -> -2.2 C
+#         75 cm (laud)    -> -1.3 C
+#     Entre ambas se interpola; para laud a 80 cm es una extrapolacion de 5 cm.
+#
+#     Consistencia interna que conviene notar: en las parcelas expuestas la
+#     arena marco 31.7 C a 45 cm y 30.8 C a 75 cm, pero en las SOMBREADAS
+#     marco 29.5 C a las dos profundidades. Es decir, bajo sombra el gradiente
+#     por profundidad se desvanece, y eso es exactamente lo que produce
+#     interpolar una reduccion mayor en lo somero.
+DELTA_T_SOMBRA_POR_PROF_C = [(45.0, -2.2), (75.0, -1.3)]
+
+#     ATENUACION DE REFERENCIA. SUPUESTO DECLARADO, no un dato del articulo.
+#
+#     Hill et al. (2015) no reportan el porcentaje de sombreo de sus parcelas:
+#     solo distinguen "sombreada" de "expuesta". No existe por tanto un mapeo
+#     documentado de porcentaje de malla a grados centigrados. Se asume que su
+#     condicion sombreada equivale a una malla que intercepta el 80 % de la
+#     radiacion directa, y el enfriamiento escala linealmente entre 0 y ese
+#     anclaje. Un nido bajo una malla del 80 % todo el dia recibe exactamente
+#     la reduccion medida por Hill; medio dia bajo ella, la mitad.
+#
+#     Cambiar este valor reescala todo el efecto de la sombra, asi que es el
+#     primer parametro que hay que someter a analisis de sensibilidad.
+ATENUACION_REFERENCIA_HILL = 0.80
+
 # --- Sandoval, S., Gomez-Munoz, V. M. y Porta-Gandara, M. A. (2020). Nuevo
 #     metodo para simplificar la estimacion de la proporcion sexual en crias
 #     de tortuga marina utilizando datos de temperatura en corrales de
@@ -138,30 +181,72 @@ DELTA_T_SOMBRA_RIEGO_C  = -4.0   # sombra + riego
 PIVOTE_C    = 29.95
 S_GIRONDOT  = -0.63
 
+# --- Situacion del corral.
+#     Dato de campo: el corral de Puerto Arista tiene malla sombra. No se
+#     conoce el porcentaje de cobertura (el vivero de referencia en Guatemala
+#     usaba 50-80 %; Hill et al. midieron sombra completa). Las predicciones
+#     del "estado actual" usan este valor; el escenario sin sombra queda como
+#     contrafactual.
+CORRAL_CON_MALLA_SOMBRA = True
+
 # --- Temperatura base de la arena por mes.
-#     ADVERTENCIA: esta tabla venia en api.py atribuida a "Sandoval 2020 /
-#     de la Torre 2017" pero no se ha podido verificar en ninguna de las dos
-#     fuentes. Es el unico insumo del modelo sin respaldo confirmado. Se
-#     mantiene para no romper el comportamiento existente, pero cualquier
-#     resultado que dependa fuertemente de ella debe reportarse como
-#     provisional hasta sustituirla por mediciones del sitio.
-TEMP_BASE_MES_C = {
-    1: 25.5, 2: 26.0, 3: 27.0, 4: 28.5,  5: 30.0,  6: 31.8,
-    7: 33.2, 8: 32.8, 9: 31.9, 10: 30.1, 11: 27.2, 12: 25.0,
+#     Sustituye una tabla que venia en api.py atribuida a "Sandoval 2020 /
+#     de la Torre 2017", que no aparecia en ninguna de las dos fuentes y que
+#     tenia la forma estacional de un clima templado (de 25.0 C en diciembre a
+#     33.2 C en julio, 8.2 C de oscilacion), no la de la costa de Chiapas.
+#
+#     1) Forma: normales climatologicas del SMN, temperatura media del aire,
+#        promedio de las tres estaciones costeras mas cercanas a Puerto
+#        Arista: Tonala 7168 (1971-2000; las dos de Tonala estan
+#        suspendidas), Arriaga 7182 (1991-2020) y Pijijiapan 7129
+#        (1991-2020). Oscila apenas 2.6 C en el ano, con pico en abril-mayo.
+#
+#     2) Nivel: Carbonell Ellgutter et al. (2025) midieron en un vivero con
+#        malla sombra de la costa pacifica de Guatemala una temperatura
+#        media de nido de 30.9 C en el tercio medio (sep-dic), con aire
+#        regional de 27.0 C de media anual. El PTS de un corral con malla
+#        queda asi 3.9 C por encima del aire.
+#
+#     3) Esta tabla es la temperatura SIN sombra, que es como la define el
+#        resto del modelo; por eso se le suman los 2.2 C que la sombra resta
+#        segun Hill et al. (2015). Con sombra=True el modelo regresa al nivel
+#        medido en el vivero con malla.
+#
+#     Incertidumbre que debe reportarse: el aire de referencia es la media
+#     anual y no la del periodo de estudio; la cobertura de la malla de
+#     Puerto Arista no se conoce; y otra medicion cercana, en un corral de San
+#     Juan Chacahua, Oaxaca, a la misma latitud (de la Torre-Robles et al.
+#     2017, PTS 30.1 C en temporada seca, sin dato de sombra) quedaria solo
+#     1.05 C sobre el aire. La proporcion sexual es muy sensible a esta
+#     diferencia porque el PTS ronda la temperatura pivote. La correccion
+#     definitiva es medir la arena del corral.
+AIRE_MEDIO_COSTA_CHIAPAS_C = {
+    1: 27.40, 2: 28.00, 3: 28.97, 4: 29.97,  5: 29.80,  6: 28.50,
+    7: 28.70, 8: 28.63, 9: 28.10, 10: 28.27, 11: 28.30, 12: 27.73,
 }
-TEMP_BASE_FUENTE = "PENDIENTE DE VERIFICAR - sustituir por medicion en sitio"
+OFFSET_PTS_CON_MALLA_C = 30.9 - 27.0
+TEMP_BASE_MES_C = {
+    mes: round(aire + OFFSET_PTS_CON_MALLA_C - DELTA_T_SOMBRA_C, 2)
+    for mes, aire in AIRE_MEDIO_COSTA_CHIAPAS_C.items()
+}
+TEMP_BASE_FUENTE = ("Aire: normales SMN Tonala 7168, Arriaga 7182 y Pijijiapan 7129. "
+                    "Nivel: vivero con malla sombra, Carbonell Ellgutter et al. (2025). "
+                    "Aproximado: confirmar midiendo la arena del corral.")
 
 # --- Gradiente termico por profundidad de siembra.
-#     ADVERTENCIA: 0.08 C por cada centimetro por encima de los 45 cm venia
-#     en api.py SIN FUENTE. No se ha localizado respaldo documental. Se trae
-#     aqui, en lugar de dejarlo disperso, para que sea visible y ajustable:
-#     ponerlo en 0.0 desactiva el efecto de la profundidad.
+#     Hill et al. (2015), PLOS ONE 10(6):e0129528, Tablas 1 y 2: en las
+#     parcelas de control (sin sombra ni riego) de Playa Grande, Costa Rica,
+#     la arena marco 31.7 +- 0.3 C a 45 cm y 30.8 +- 0.2 C a 75 cm. Son
+#     0.9 C en 30 cm: 0.03 C por centimetro, mas calor cuanto mas somero.
 #
-#     Su peso real es pequeno mientras se siembre a la profundidad
-#     documentada: el AG coloca los nidos a ~45 cm, asi que la correccion
-#     queda por debajo de 0.1 C. Importa solo si alguien siembra fuera de esa
-#     profundidad.
-DELTA_T_POR_CM_PROFUNDIDAD = 0.08
+#     Sustituye un 0.08 C/cm que venia en api.py sin fuente y que casi
+#     triplicaba el gradiente medido.
+#
+#     Alcance: se midio entre 45 y 75 cm, y aqui se aplica alrededor de 45 cm
+#     dentro del rango de 40 a 50 cm de la NOM-162, asi que por el lado somero
+#     es una extrapolacion corta. Mientras se siembre a la profundidad
+#     documentada la correccion no pasa de 0.15 C.
+DELTA_T_POR_CM_PROFUNDIDAD = 0.03
 PROFUNDIDAD_REFERENCIA_CM  = 45.0
 
 def fecundidad_mensual(carpeta_csv=None):
@@ -327,7 +412,7 @@ def temperatura_pts(t_base_c, n_huevos=None, sombra=False, riego=False,
     t += DELTA_T_POR_HUEVO_C * (n - HUEVOS_REFERENCIA)
     if prof_cm is not None:
         t += (PROFUNDIDAD_REFERENCIA_CM - float(prof_cm)) * DELTA_T_POR_CM_PROFUNDIDAD
-    t += _delta_mitigacion(sombra, riego)
+    t += _delta_mitigacion(sombra, riego, prof_cm)
     return round(t, 2)
 
 
@@ -356,31 +441,118 @@ def temperatura_ultimo_tercio(t_base_c, n_huevos=None, densidad_m2=0.0,
     return round(t, 2)
 
 
-def _delta_mitigacion(sombra, riego):
-    if sombra and riego:
-        return DELTA_T_SOMBRA_RIEGO_C
-    if sombra:
+_ATENUACION_SITIO = None
+
+
+def atenuacion_malla_del_sitio():
+    """Opacidad de la malla instalada, leida de csv/sitio.csv una sola vez.
+
+    Se resuelve aqui, como valor por omision, en vez de arrastrarla por la
+    firma de cada funcion del modulo. Si no hay archivo de sitio se devuelve la
+    atenuacion de referencia, con lo que `sombra=True` sigue equivaliendo al
+    efecto pleno que midio Hill.
+    """
+    global _ATENUACION_SITIO
+    if _ATENUACION_SITIO is None:
+        try:
+            import solar
+            _ATENUACION_SITIO = float(
+                solar.cargar_sitio().get('atenuacion_malla',
+                                         ATENUACION_REFERENCIA_HILL))
+        except Exception:
+            _ATENUACION_SITIO = ATENUACION_REFERENCIA_HILL
+    return _ATENUACION_SITIO
+
+
+def _fraccion_sombra(sombra):
+    """Normaliza el argumento `sombra` a una fraccion en [0, 1].
+
+    Acepta un booleano, por compatibilidad con las llamadas que solo distinguen
+    corral con malla de corral sin malla, o una fraccion continua, que es lo
+    que entrega solar.atenuacion_efectiva() para un nido concreto. Asi la
+    sombra dejo de ser un interruptor y paso a ser una magnitud que depende de
+    DONDE esta el nido, sin romper a quien ya llamaba con True o False.
+    """
+    if sombra is None or sombra is False:
+        return 0.0
+    if sombra is True:
+        return 1.0
+    return max(0.0, min(1.0, float(sombra)))
+
+
+def _sombra_plena_por_prof(prof_cm):
+    """Reduccion que da la sombra plena a esa profundidad, interpolando Hill."""
+    if prof_cm is None:
         return DELTA_T_SOMBRA_C
+    p = float(prof_cm)
+    (p0, d0), (p1, d1) = DELTA_T_SOMBRA_POR_PROF_C
+    if p <= p0:
+        return d0
+    if p >= p1:
+        # Extrapolacion corta hacia lo profundo, con la misma pendiente.
+        return d1 + (p - p1) * (d1 - d0) / (p1 - p0)
+    t = (p - p0) / (p1 - p0)
+    return d0 + t * (d1 - d0)
+
+
+def _delta_mitigacion(sombra, riego, prof_cm=None, atenuacion_malla=None):
+    """Enfriamiento por sombra y riego, en grados centigrados (negativo).
+
+    La sombra entra como fraccion continua: un nido que pasa el 40 % de la
+    insolacion del dia bajo la malla recibe el 40 % del efecto medido, escalado
+    ademas por lo opaca que sea la malla frente a la de referencia de Hill.
+
+    El riego sigue siendo binario porque asi se midio: parcelas regadas contra
+    no regadas. Sombra y riego juntos NO se suman (2.2 + 2.3 = 4.5 C, pero
+    Hill midio 4.0 C al combinarlos), asi que se interpola desde riego solo
+    hacia el anclaje combinado conforme aumenta la sombra.
+    """
+    f = _fraccion_sombra(sombra)
+    if atenuacion_malla is None:
+        atenuacion_malla = atenuacion_malla_del_sitio()
+    if atenuacion_malla:
+        f *= float(atenuacion_malla) / ATENUACION_REFERENCIA_HILL
+    f = max(0.0, min(1.0, f))
+
+    sombra_plena = _sombra_plena_por_prof(prof_cm)
+
     if riego:
-        return DELTA_T_RIEGO_C
-    return 0.0
+        # De -2.3 C (riego solo) a -4.0 C (sombra plena + riego).
+        return DELTA_T_RIEGO_C + f * (DELTA_T_SOMBRA_RIEGO_C - DELTA_T_RIEGO_C)
+    return f * sombra_plena
 
 
 # =====================================================================
 #  SEXO Y SUPERVIVENCIA
 # =====================================================================
 
-def proporcion_sexual(t_pts_c):
-    """Ecuacion de Girondot con los parametros de Sandoval et al. (2020).
+def proporcion_sexual(t_pts_c, pivote=None, s=None):
+    """Ecuacion de Girondot.
 
-        Pm = 1 / (1 + exp((P - T) / S))     P = 29.95 C,  S = -0.63
+        Pm = 1 / (1 + exp((P - T) / S))
 
-    Devuelve el porcentaje de machos y de hembras.
+    P y S son ESPECIFICOS DE CADA ESPECIE y se leen de pts_termosensible.csv:
+
+        golfina  P = 29.95 C   Sandoval, Gomez-Munoz y Porta-Gandara,
+                               Lepidochelys olivacea, Playa Ceuta, Sinaloa
+        prieta   P = 29.2  C   Godfrey y Mrosovsky (2006), Chelonia mydas,
+                               Suriname (poblacion atlantica, importada)
+        laud     P = 29.4  C   extremo inferior del rango 29.4-29.8 C
+                               documentado para Dermochelys coriacea
+
+    Antes esta funcion usaba siempre las constantes de golfina, de modo que
+    prieta y laud se evaluaban con una pivote que no es la suya. Una diferencia
+    de 0.75 C en P, como la que hay entre golfina y prieta, mueve la proporcion
+    de hembras mas de veinte puntos en la zona empinada de la curva.
+
+    Los valores por omision son los de golfina, por compatibilidad.
     """
+    p = PIVOTE_C if pivote is None else float(pivote)
+    sp = S_GIRONDOT if s is None else float(s)
     try:
-        pm = 1.0 / (1.0 + math.exp((PIVOTE_C - float(t_pts_c)) / S_GIRONDOT))
+        pm = 1.0 / (1.0 + math.exp((p - float(t_pts_c)) / sp))
     except OverflowError:
-        pm = 0.0 if float(t_pts_c) > PIVOTE_C else 1.0
+        pm = 0.0 if float(t_pts_c) > p else 1.0
     pm = max(0.0, min(1.0, pm))
     return {
         'temp_pts_c':  round(float(t_pts_c), 2),
@@ -406,7 +578,8 @@ def riesgo_letal(t_ultimo_tercio_c):
 
 def predecir_nido(mes, n_huevos, tasa_base_especie, densidad_m2=0.0,
                   sombra=False, riego=False, t_base_c=None,
-                  delta_por_densidad=DELTA_T_POR_NIDO_M2, prof_cm=None):
+                  delta_por_densidad=DELTA_T_POR_NIDO_M2, prof_cm=None,
+                  pivote=None, s_girondot=None):
     """Prediccion completa para un nido: crias esperadas y sexo.
 
     Args:
@@ -429,7 +602,7 @@ def predecir_nido(mes, n_huevos, tasa_base_especie, densidad_m2=0.0,
     tasa   = max(0.0, min(1.0, float(tasa_base_especie) * factor))
     crias  = float(n_huevos or 0) * tasa
 
-    sexo = proporcion_sexual(t_pts)
+    sexo = proporcion_sexual(t_pts, pivote, s_girondot)
     riesgo = riesgo_letal(t_final)
 
     return {
@@ -495,7 +668,8 @@ def en_sombra(x_cm, y_cm, rectangulos_sombra):
 
 def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
                        rectangulos_sombra=None, huevos_por_defecto=None,
-                       delta_por_densidad=DELTA_T_POR_NIDO_M2):
+                       delta_por_densidad=DELTA_T_POR_NIDO_M2,
+                       sitio=None, dia_del_anio=None, params_especie=None):
     """Evalua una colocacion completa de nidos.
 
     `nidos` es una lista de objetos con atributos x, y, especie y num_huevas
@@ -528,12 +702,29 @@ def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
         especie = _attr(n, 'especie', 'golfina')
         huevos  = _attr(n, 'num_huevas', 0) or huevos_def
         tasa    = float(tasa_base_por_especie.get(especie, 0.75))
-        sombra  = en_sombra(x, y, rectangulos_sombra)
         d       = dens_todas[i]
+
+        # Sombra del nido. Con configuracion de sitio se calcula por geometria
+        # solar: cuanta de la insolacion del dia le intercepta la malla, dada
+        # su posicion, la orientacion del corral, la altura de la malla, la
+        # fecha y la latitud. Sin ella se cae al criterio binario de
+        # rectangulos, que es lo que habia antes.
+        if sitio is not None and dia_del_anio is not None:
+            import solar
+            sombra = solar.fraccion_sombra_dia(x, y, dia_del_anio, sitio)
+        else:
+            sombra = en_sombra(x, y, rectangulos_sombra)
+
+        # Profundidad y pivote propias de la especie. Antes no se pasaba la
+        # profundidad del nido -se evaluaba todo como si estuviera a 45 cm- y
+        # la pivote era siempre la de golfina.
+        prof = _attr(n, 'prof', None)
+        pe = (params_especie or {}).get(especie, {})
 
         p = predecir_nido(mes=mes or 9, n_huevos=huevos,
                           tasa_base_especie=tasa, densidad_m2=d,
-                          sombra=sombra,
+                          sombra=sombra, prof_cm=prof,
+                          pivote=pe.get('pivote'), s_girondot=pe.get('s'),
                           delta_por_densidad=delta_por_densidad)
         predicciones.append(p)
         crias_sin_hacinamiento += float(huevos) * tasa

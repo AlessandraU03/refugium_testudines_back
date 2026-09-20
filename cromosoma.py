@@ -131,18 +131,28 @@ class Gen:
 
 
 class Individuo:
-    def __init__(self, genes):
+    def __init__(self, genes, idx_orden=0):
         self.genes   = genes
         self.fitness = None
         self.v1 = self.v2 = self.v3 = None
         self.orden = None
         self.indice_eclosion = None
 
+        # Cual de los ORDENES_ZONAS usa este individuo, es decir a que especie
+        # le toca cada franja del corral. Es la segunda mitad del cromosoma:
+        # los genes dicen donde va cada nido DENTRO de su zona, y esto dice
+        # donde esta la zona. Con la malla cubriendo parte del corral, decide
+        # quien recibe la sombra.
+        #
+        # OJO: no confundir con self.orden, que es el termino operativo de
+        # llenado en serpentina.
+        self.idx_orden = idx_orden
+
     def num_nidos(self):
         return len(self.genes)
 
     def copia(self):
-        ind = Individuo([g.copia() for g in self.genes])
+        ind = Individuo([g.copia() for g in self.genes], self.idx_orden)
         ind.fitness = self.fitness
         ind.v1, ind.v2, ind.v3 = self.v1, self.v2, self.v3
         ind.orden = self.orden
@@ -182,55 +192,96 @@ def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
     return lo
 
 
+ESPECIES = ('golfina', 'prieta', 'laud')
+
+# Las seis maneras de repartir tres franjas entre tres especies. El AG elige
+# una: con la malla sombra cubriendo solo parte del corral, ese reparto decide
+# a que especie le toca el fresco, y por tanto su proporcion sexual.
+ORDENES_ZONAS = [
+    ('golfina', 'prieta', 'laud'),
+    ('golfina', 'laud', 'prieta'),
+    ('prieta', 'golfina', 'laud'),
+    ('prieta', 'laud', 'golfina'),
+    ('laud', 'golfina', 'prieta'),
+    ('laud', 'prieta', 'golfina'),
+]
+
+
 class GestorZonas:
     """
-    Divide el corral en 3 franjas verticales proporcionales a n_nidos.
+    Divide el corral en franjas verticales, una por especie presente.
 
-    Ejemplo (70 golfina / 25 prieta / 5 laúd, total=100):
-      zona_golfina: x ∈ [0,    2800]   70% de 4000 cm
-      zona_prieta:  x ∈ [2800, 3800]   25% de 4000 cm
-      zona_laud:    x ∈ [3800, 4000]    5% de 4000 cm
-      Todas:        y ∈ [0,    3500]
+    DOS COSAS QUE CAMBIARON RESPECTO A LA VERSION ANTERIOR
+    ------------------------------------------------------
+
+    1. El ancho de cada franja es proporcional al AREA que la especie
+       necesita, no a su numero de nidos. Un nido de laud pide 150 cm de
+       separacion contra los 100 de golfina, o sea 2.25 veces mas superficie
+       (150^2 contra 100^2). Repartir por conteo le asignaba a laud una franja
+       donde sus propios nidos no caben, y la rejilla tenia que apretarse.
+
+    2. El ORDEN de las especies a lo largo del corral es un parametro, no una
+       constante. Antes siempre era golfina, prieta, laud de izquierda a
+       derecha. Con la malla sombra cubriendo solo una parte del corral eso
+       condenaba a las dos ultimas especies al sol: medido, prieta y laud
+       quedaban con sombra 0.00-0.07 y 100 % de hembras, y son precisamente
+       las de pivote mas baja. Ahora el orden lo elige el algoritmo genetico.
+
+    Ejemplo con 20 golfina / 8 prieta / 2 laud en un corral de 3000 x 800 cm,
+    orden (golfina, prieta, laud):
+      areas: 20*100^2 = 200 000 | 8*120^2 = 115 200 | 2*150^2 = 45 000
+      zona_golfina: x en [0, 1667]
+      zona_prieta:  x en [1667, 2627]
+      zona_laud:    x en [2627, 3000]
     """
-    def __init__(self, corral, n_golfina, n_prieta, n_laud, base=None):
+    def __init__(self, corral, n_golfina, n_prieta, n_laud, base=None,
+                 orden=None):
         self.largo_cm = float(corral['largo_cm'])
         self.ancho_cm = float(corral['ancho_cm'])
         self.conteo   = {'golfina': n_golfina, 'prieta': n_prieta, 'laud': n_laud}
         self.total    = n_golfina + n_prieta + n_laud
         self.base     = base
+        self.orden    = tuple(orden) if orden else ESPECIES
         self.limites  = self._calcular_limites()
         self._cache_slots = {}
         self.separacion_efectiva = {}
 
+    def _area_necesaria(self, especie):
+        """Superficie que pide una especie: sus nidos por su separacion al cuadrado."""
+        n = self.conteo.get(especie, 0)
+        if not n:
+            return 0.0
+        sep = 100.0
+        if self.base and especie in self.base:
+            sep = float(self.base[especie].get('sep_min', 100.0))
+        return n * sep * sep
+
     def _calcular_limites(self):
         if self.total == 0:
             return {}
-        n_g = self.conteo['golfina']
-        n_p = self.conteo['prieta']
-        n_l = self.conteo['laud']
 
-        largo_g = round(self.largo_cm * n_g / self.total, 1)
-        largo_p = round(self.largo_cm * n_p / self.total, 1)
-        largo_l = self.largo_cm - largo_g - largo_p
-
-        x0 = 0.0
-        x1 = largo_g
-        x2 = largo_g + largo_p
-        x3 = self.largo_cm
+        presentes = [e for e in self.orden if self.conteo.get(e, 0) > 0]
+        pesos = {e: self._area_necesaria(e) for e in presentes}
+        total_peso = sum(pesos.values())
+        if total_peso <= 0:
+            return {}
 
         lims = {}
-        if n_g > 0:
-            lims['zona_golfina'] = {'xmin': x0, 'xmax': x1,
-                                    'ymin': 0.0, 'ymax': self.ancho_cm,
-                                    'especie': 'golfina'}
-        if n_p > 0:
-            lims['zona_prieta']  = {'xmin': x1, 'xmax': x2,
-                                    'ymin': 0.0, 'ymax': self.ancho_cm,
-                                    'especie': 'prieta'}
-        if n_l > 0:
-            lims['zona_laud']    = {'xmin': x2, 'xmax': x3,
-                                    'ymin': 0.0, 'ymax': self.ancho_cm,
-                                    'especie': 'laud'}
+        x = 0.0
+        for i, esp in enumerate(presentes):
+            # A la ultima franja se le da el remanente exacto, para que las
+            # franjas cubran el corral completo sin dejar una rendija por
+            # redondeo.
+            if i == len(presentes) - 1:
+                ancho = self.largo_cm - x
+            else:
+                ancho = round(self.largo_cm * pesos[esp] / total_peso, 1)
+            lims['zona_%s' % esp] = {
+                'xmin': round(x, 1), 'xmax': round(x + ancho, 1),
+                'ymin': 0.0, 'ymax': self.ancho_cm,
+                'especie': esp,
+            }
+            x += ancho
         return lims
 
     def limites_zona(self, nombre_zona):
@@ -251,14 +302,24 @@ class GestorZonas:
             return []
 
         especie = lim['especie']
-        prev = [(oc['x'], oc['y']) for oc in (nidos_ocupados or [])
-                if oc.get('especie') == especie]
+
+        # TODOS los nidos ya enterrados, no solo los de esta especie.
+        #
+        # Antes se filtraban unicamente los previos de la misma especie, porque
+        # la separacion minima esta definida por especie. Pero la separacion es
+        # una norma biologica y el solapamiento es un hecho fisico: no se puede
+        # excavar donde ya hay una nidada, sea de la especie que sea. Mientras
+        # las franjas estuvieron fijas el error no se notaba -cada especie
+        # ocupaba su propia franja-, pero desde que el AG reordena las franjas
+        # una prieta nueva puede caer sobre una golfina enterrada.
+        prev = [(oc['x'], oc['y']) for oc in (nidos_ocupados or [])]
 
         # La rejilla no cambia durante una corrida y se consulta miles de veces
         # (una por evaluación y una por mutación), así que se memoriza.
         clave = (nombre_zona, sep_min, n_requeridos, len(prev),
                  round(sum(p[0] for p in prev), 1),
-                 round(sum(p[1] for p in prev), 1))
+                 round(sum(p[1] for p in prev), 1),
+                 round(sum(p[0] * p[1] for p in prev), 1))
         if clave in self._cache_slots:
             return self._cache_slots[clave]
 
@@ -301,74 +362,39 @@ class GestorZonas:
         self._cache_slots[clave] = slots
         return slots
 
-    def posiciones_cuadricula(self, nombre_zona, n_nidos, sep_min=100.0,
-                              nidos_ocupados=None):
+    def slots_suficientes(self, nombre_zona, sep_min, nidos_ocupados,
+                          n_necesarios):
+        """Casillas en orden de llenado, garantizando que alcancen para n_necesarios.
+
+        `slots_ordenados` aprieta el paso de la rejilla para alojar
+        `n_requeridos`, pero despues descarta las casillas que caen junto a un
+        nido ya enterrado, asi que puede devolver menos de las pedidas. Aqui se
+        vuelve a pedir con una meta mayor hasta que alcancen.
+
+        Existe para que quien COLOCA los nidos y quien JUZGA la colocacion usen
+        exactamente la misma rejilla. Cuando no era asi, el termino de orden
+        evaluaba el llenado secuencial contra una rejilla de 187 casillas para
+        200 nidos, y le daba cero al llenado que es, literalmente, secuencial.
+        """
         lim = self.limites_zona(nombre_zona)
-        if not lim or n_nidos == 0:
-            return []
+        previos = list(nidos_ocupados or [])
+        # Cuentan todos los nidos enterrados dentro de esta franja: cada uno
+        # ocupa una casilla que esta zona ya no puede usar.
+        n_previos = sum(
+            1 for p in previos
+            if lim and lim['xmin'] <= float(p.get('x', -1)) <= lim['xmax']
+            and lim['ymin'] <= float(p.get('y', -1)) <= lim['ymax'])
 
-        ancho_z  = lim['xmax'] - lim['xmin']
-        alto_z   = lim['ymax'] - lim['ymin']
-        especie  = lim['especie']
-
-        cols  = max(1, int(ancho_z / sep_min))
-        filas = max(1, int(alto_z  / sep_min))
-
-        paso_x = ancho_z / cols
-        paso_y = alto_z  / filas
-
-        todas = []
-        for f in range(filas):
-            for c in range(cols):
-                x = lim['xmin'] + paso_x * (c + 0.5)
-                y = lim['ymin'] + paso_y * (f + 0.5)
-                todas.append((round(x, 1), round(y, 1)))
-
-        if nidos_ocupados:
-            prev_esp = [(oc['x'], oc['y'])
-                        for oc in nidos_ocupados
-                        if oc.get('especie') == especie]
-            if prev_esp:
-                libres = []
-                for px, py in todas:
-                    if all(math.sqrt((px - ox)**2 + (py - oy)**2) >= sep_min
-                           for ox, oy in prev_esp):
-                        libres.append((px, py))
-                todas = libres
-
-        random.shuffle(todas)
-
-        if len(todas) >= n_nidos:
-            return todas[:n_nidos]
-
-        # Zona saturada — completar con muestreo aleatorio respetando sep_min
-        seleccionadas = list(todas)
+        objetivo = int(n_necesarios) + n_previos
+        slots = self.slots_ordenados(nombre_zona, sep_min, previos,
+                                     n_requeridos=objetivo)
         intentos = 0
-        max_intentos = n_nidos * 300
-        prev_esp_coords = [(oc['x'], oc['y'])
-                           for oc in (nidos_ocupados or [])
-                           if oc.get('especie') == especie]
-
-        while len(seleccionadas) < n_nidos and intentos < max_intentos:
+        while len(slots) < n_necesarios and intentos < 20:
             intentos += 1
-            cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
-            cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
-            valida = all(
-                math.sqrt((cx - px)**2 + (cy - py)**2) >= sep_min
-                for px, py in seleccionadas
-            ) and all(
-                math.sqrt((cx - ox)**2 + (cy - oy)**2) >= sep_min
-                for ox, oy in prev_esp_coords
-            )
-            if valida:
-                seleccionadas.append((cx, cy))
-
-        while len(seleccionadas) < n_nidos:
-            cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
-            cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
-            seleccionadas.append((cx, cy))
-
-        return seleccionadas[:n_nidos]
+            objetivo = int(objetivo * 1.25) + 1
+            slots = self.slots_ordenados(nombre_zona, sep_min, previos,
+                                         n_requeridos=objetivo)
+        return slots
 
     def __repr__(self):
         return (f"GestorZonas(dinámica)\n"
@@ -376,6 +402,71 @@ class GestorZonas:
                 f"  Golfina: {self.conteo['golfina']} nidos\n"
                 f"  Prieta:  {self.conteo['prieta']} nidos\n"
                 f"  Laúd:    {self.conteo['laud']} nidos")
+
+
+class GestoresZonas:
+    """Los seis repartos posibles de las franjas, listos para usar.
+
+    El reparto de zonas es parte del cromosoma: cada individuo lleva en
+    `idx_orden` cual de los ORDENES_ZONAS usa. Se precalculan los seis
+    gestores en vez de construir uno por evaluacion, porque lo caro de un
+    gestor no es crearlo sino la rejilla de casillas que memoriza, y esa se
+    consulta miles de veces por corrida.
+
+    Seis es el numero exacto de permutaciones de tres especies. Si algun dia
+    entran mas especies habra que cambiar de estrategia: las permutaciones
+    crecen como el factorial.
+    """
+    def __init__(self, corral, n_golfina, n_prieta, n_laud, base=None):
+        self.gestores = [
+            GestorZonas(corral, n_golfina, n_prieta, n_laud, base, orden=o)
+            for o in ORDENES_ZONAS
+        ]
+        self.conteo = self.gestores[0].conteo
+        self.total  = self.gestores[0].total
+
+    def para(self, idx_orden=0):
+        """El gestor que corresponde a ese individuo."""
+        return self.gestores[int(idx_orden or 0) % len(self.gestores)]
+
+    def __len__(self):
+        return len(self.gestores)
+
+    # --- Compatibilidad -------------------------------------------------
+    # Quien trate a este contenedor como un gestor unico obtiene el reparto
+    # por omision, que es el orden historico golfina-prieta-laud. Sirve para
+    # el codigo y las pruebas que se escribieron antes de que el orden fuera
+    # una decision del algoritmo.
+    @property
+    def limites(self):
+        return self.gestores[0].limites
+
+    @property
+    def separacion_efectiva(self):
+        return self.gestores[0].separacion_efectiva
+
+    @property
+    def orden(self):
+        return self.gestores[0].orden
+
+    def limites_zona(self, nombre_zona):
+        return self.gestores[0].limites_zona(nombre_zona)
+
+    def slots_ordenados(self, *a, **k):
+        return self.gestores[0].slots_ordenados(*a, **k)
+
+    def slots_suficientes(self, *a, **k):
+        return self.gestores[0].slots_suficientes(*a, **k)
+
+
+def resolver_gestor(gestor, idx_orden=0):
+    """El GestorZonas que le toca a un individuo.
+
+    Acepta tanto un contenedor GestoresZonas como un GestorZonas suelto, para
+    que todo lo escrito antes de que el orden de zonas fuera parte del
+    cromosoma siga funcionando sin cambios.
+    """
+    return gestor.para(idx_orden) if hasattr(gestor, 'para') else gestor
 
 
 class RegistroJornadas:
@@ -498,11 +589,3 @@ class RegistroJornadas:
                 pass
 
 
-def calcular_capacidad_restante(corral, nidos_activos, sep_min=100.0):
-    largo     = float(corral['largo_cm'])
-    ancho     = float(corral['ancho_cm'])
-    cap_total = int(largo / sep_min) * int(ancho / sep_min)
-    ocupado   = len(nidos_activos)
-    libres    = max(0, cap_total - ocupado)
-    pct       = (ocupado / cap_total * 100) if cap_total > 0 else 0
-    return libres, round(pct, 1)
