@@ -237,6 +237,65 @@ def calcular_efecto_profundidad_cientifico(profundidad_cm, prof_min_cm, prof_max
     return max(0.0, 1.0 - exceso / semi_rango)
 
 
+def cumplimiento_separacion(genes, base, nidos_previos=None, sep_alcanzable=None):
+    """Fracción de nidos nuevos que respetan la separación contra TODO vecino.
+
+    Se mide contra los nidos nuevos y contra los ya enterrados, sin importar la
+    especie: la separación mínima es una norma biológica, pero el espacio
+    ocupado es un hecho físico. Entre dos especies distintas se exige la mayor
+    de sus dos separaciones, que es la condición más restrictiva de las dos.
+
+    Este término es lo que le permite al AG COLOCAR en vez de limitarse a
+    elegir casillas de una rejilla: mientras la separación se garantizaba sólo
+    por construcción de la cuadrícula, cualquier posición fuera de ella era
+    inválida y el algoritmo no tenía libertad real. Ahora puede mover un nido a
+    donde le convenga -por sombra, por densidad- y la aptitud le cobra si
+    invade el espacio de otro.
+
+    Returns:
+        float [0.0, 1.0]: 1.0 = ningún nido invade la separación de otro.
+    """
+    if not genes:
+        return 1.0
+
+    previos = _previos_lista(nidos_previos)
+    vecinos = ([(float(g.x), float(g.y), g.especie) for g in genes] +
+               [(float(p['x']), float(p['y']), p.get('especie', 'golfina'))
+                for p in previos])
+
+    # Separación exigible: la de la norma, salvo que el corral esté tan
+    # saturado que la rejilla haya tenido que apretarse. En ese caso se exige
+    # la ALCANZABLE, no la de la norma.
+    #
+    # Es la lección del término que se retiró: midiendo contra los 100 cm de la
+    # norma en un corral comprimido a 80, ningún nido puede cumplir, el término
+    # vale 0 para todas las colocaciones y deja de distinguir la buena de la
+    # mala. Contra la alcanzable, el reparto uniforme obtiene 1.0 y cualquier
+    # apiñamiento innecesario baja.
+    seps = {}
+    for e in base:
+        norma = float(base[e].get('sep_min', 100.0))
+        alc = (sep_alcanzable or {}).get(e)
+        seps[e] = min(norma, float(alc)) if alc else norma
+
+    xs = np.array([v[0] for v in vecinos])
+    ys = np.array([v[1] for v in vecinos])
+
+    cumplen = 0
+    for i, g in enumerate(genes):
+        dx = xs - float(g.x)
+        dy = ys - float(g.y)
+        d2 = dx * dx + dy * dy
+        d2[i] = np.inf                      # no compararse consigo mismo
+        # Separación exigida frente a cada vecino: la mayor de las dos especies
+        req = np.array([max(seps.get(g.especie, 100.0), seps.get(v[2], 100.0))
+                        for v in vecinos])
+        if np.all(d2 >= (req - 0.05) ** 2):
+            cumplen += 1
+
+    return cumplen / float(len(genes))
+
+
 def calcular_efecto_separacion_cientifico(nidos, base):
     """
     Factor de separación: proporción de nidos cuyo vecino más cercano de la
@@ -553,7 +612,18 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
         for g in individuo.genes
     ]) if individuo.genes else 1.0
 
-    # Cumplimiento de separación: se mide y se reporta, ya no es objetivo.
+    # Cumplimiento de separación contra TODO vecino, incluidos los nidos ya
+    # enterrados y los de otras especies. Vuelve a ser objetivo, pero medido
+    # contra la separación alcanzable, que es lo que lo hacía degenerar antes.
+    from cromosoma import resolver_gestor
+    g_ind = resolver_gestor(gestor, getattr(individuo, 'idx_orden', 0))
+    sep_alc = {}
+    for nombre, paso in getattr(g_ind, 'separacion_efectiva', {}).items():
+        sep_alc[nombre.replace('zona_', '')] = paso
+    cumple_sep = cumplimiento_separacion(individuo.genes, base, nidos_previos,
+                                         sep_alc)
+
+    # Se conserva la métrica anterior sólo para reportarla en la interfaz.
     efecto_sep = calcular_efecto_separacion_cientifico(individuo.genes, base)
 
     # Cumplimiento de la densidad máxima recomendada: 1 nido/m²
@@ -577,7 +647,7 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
                    / float(len(dens_nidos))) if dens_nidos else 1.0
 
     biologico = float(np.clip(
-        eclosion * efecto_prof * letal * cumple_dens, 0.0, 1.0))
+        eclosion * efecto_prof * letal * cumple_dens * cumple_sep, 0.0, 1.0))
     orden = calcular_orden_operativo(individuo, gestor, base, nidos_previos)
     fitness_final = ((biologico + _EPS_SEXO * sexo + _EPS_ORDEN * orden)
                      / (1.0 + _EPS_SEXO + _EPS_ORDEN))
@@ -585,7 +655,7 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
     individuo.fitness = round(float(fitness_final), 6)
     individuo.indice_eclosion = round(float(eclosion), 4)
     individuo.v1 = calcular_v1(individuo, base, nidos_previos)
-    individuo.v2 = 1.0 - efecto_sep   # incumplimiento de separación, métrica
+    individuo.v2 = round(1.0 - cumple_sep, 6)   # incumplimiento de separación
     individuo.v3 = 1.0 - efecto_prof
     individuo.orden = orden
 

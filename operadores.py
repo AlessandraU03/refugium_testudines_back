@@ -3,6 +3,11 @@ import math
 import numpy as np
 from cromosoma import Individuo, ORDENES_ZONAS, resolver_gestor
 
+# Fracción de la descendencia a la que se le aplica la reparación de orden.
+# No es 1.0 a propósito: aplicada siempre, pega a toda la población a la misma
+# rejilla y el AG deja de colocar nidos para limitarse a elegir casillas.
+_PROB_REPARACION = 0.35
+
 
 def seleccion_torneo(poblacion, k=3):
     n         = len(poblacion)
@@ -136,17 +141,24 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         if not lim:
             continue
 
-        # Vecinos nuevos de la misma especie (excluyendo este nido) usando indexación NumPy
-        mask = (all_esps == gen.especie)
+        # TODOS los vecinos, no solo los de su especie: los demas nidos de la
+        # jornada y los ya enterrados, sean de la especie que sean.
+        #
+        # Comparando solo contra la misma especie, esta mutacion podia mover un
+        # nido justo encima de uno de otra especie ya sembrado. Medido: llego a
+        # dejar un nido nuevo a 18 cm de uno enterrado. La separacion minima es
+        # una norma biologica por especie, pero el hoyo ya excavado es un hecho
+        # fisico que no distingue especies.
+        mask = np.ones(len(genes), dtype=bool)
         mask[idx] = False
-        xs_new = all_xs[mask]
-        ys_new = all_ys[mask]
+        xs_partes = [all_xs[mask]]
+        ys_partes = [all_ys[mask]]
+        for _e, (_px, _py) in previos_esp.items():
+            xs_partes.append(_px)
+            ys_partes.append(_py)
 
-        # Vecinos previos de la misma especie
-        xs_prev, ys_prev = previos_esp.get(gen.especie, (np.array([]), np.array([])))
-
-        xs_all = np.concatenate([xs_new, xs_prev])
-        ys_all = np.concatenate([ys_new, ys_prev])
+        xs_all = np.concatenate(xs_partes)
+        ys_all = np.concatenate(ys_partes)
 
         if len(xs_all) == 0:
             continue
@@ -174,8 +186,22 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         dist_sq_cand = dx**2 + dy**2
 
         viols_cand = (dist_sq_cand < sep_min_sq).sum(axis=1)
-        best_idx = np.argmin(viols_cand)
+
+        # Entre los candidatos que menos violan, quedarse con el que MAS lejos
+        # queda del vecino mas cercano. Sin este desempate, "menos violaciones"
+        # admitia un candidato pegado a un solo vecino, y de ahi salian nidos a
+        # 18 cm de uno enterrado: una violacion, pero fisicamente encima.
+        menos = viols_cand.min()
+        empatados = np.flatnonzero(viols_cand == menos)
+        cercania = dist_sq_cand[empatados].min(axis=1)
+        best_idx = int(empatados[int(np.argmax(cercania))])
         mejor_viols = viols_cand[best_idx]
+
+        # Y nunca aceptar un movimiento que acerque el nido a su vecino mas
+        # proximo: aunque baje la cuenta de violaciones, empeoraria el
+        # solapamiento fisico.
+        if float(dist_sq_cand[best_idx].min()) < float(dist_sq_actual.min()):
+            continue
 
         if mejor_viols < viols_actual:
             new_x = float(cxs[best_idx])
@@ -193,10 +219,19 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
     for gen in genes:
         por_esp.setdefault(gen.especie, []).append(gen)
 
-    # Se aplica siempre, no con prob_mut: es una reparación, no una perturbación.
+    # NO se aplica siempre. Antes sí, y ese era el problema: pegaba a TODOS los
+    # individuos a la misma rejilla, de modo que el AG dejaba de colocar nidos
+    # y se limitaba a elegir casillas. Medido con 100 nidos, la población
+    # entera acababa en 27 columnas por 10 filas, idéntica al llenado
+    # secuencial, y por eso la ganancia contra la referencia era siempre 0.0.
+    #
+    # Aplicada sólo a una parte de la descendencia, sigue cumpliendo su papel
+    # -mantener colocaciones ordenadas y sembrables- sin imponerle la rejilla
+    # al resto, que queda libre para buscar sombra o repartir densidad.
+    aplica_reparacion = random.random() < _PROB_REPARACION
     # Sólo mueve nidos a casillas de la misma rejilla, que son biológicamente
     # equivalentes (mismo sep_min, misma zona), así que no sacrifica diversidad útil.
-    for esp, gs in por_esp.items():
+    for esp, gs in (por_esp.items() if aplica_reparacion else ()):
         sep_min = base[esp]['sep_min']
         xs_prev, ys_prev = previos_esp.get(esp, (np.array([]), np.array([])))
         previos_dicts = [{'x': float(px), 'y': float(py), 'especie': esp}
@@ -246,6 +281,51 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
                     fx[i], fy[i] = gen.x, gen.y
                     pendientes.pop(k)
                     break
+
+    # ── Mutación 4: Colocación libre ─────────────────────────────────────────
+    # Propone mover un nido a cualquier punto de su zona, no a una casilla de
+    # la rejilla, y acepta el movimiento sólo si sigue respetando la separación
+    # frente a TODOS los vecinos: los nidos nuevos y los ya enterrados, sean de
+    # la especie que sean.
+    #
+    # Es lo que convierte al AG en un colocador y no en un seleccionador de
+    # casillas. La rejilla garantiza la separación por construcción, pero a
+    # cambio fija las posiciones; aquí la separación se verifica, así que el
+    # nido puede ir a donde la sombra o la densidad lo hagan rendir más.
+    xs_otros = [np.array([g.x for g in genes])]
+    ys_otros = [np.array([g.y for g in genes])]
+    for e, (px, py) in previos_esp.items():
+        xs_otros.append(px)
+        ys_otros.append(py)
+    todos_x = np.concatenate(xs_otros)
+    todos_y = np.concatenate(ys_otros)
+
+    for idx, gen in enumerate(genes):
+        if random.random() >= prob_mut:
+            continue
+        lim = gestor.limites_zona(gen.zona_correcta())
+        if not lim:
+            continue
+
+        # Separación exigida: la de la norma, o la del paso real de la rejilla
+        # si el corral está tan saturado que hubo que apretarla.
+        sep_req = float(base[gen.especie]['sep_min'])
+        paso = gestor.separacion_efectiva.get(gen.zona_correcta())
+        if paso:
+            sep_req = min(sep_req, float(paso))
+        sep_sq = (sep_req - 0.05) ** 2
+
+        cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
+        cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
+
+        d2 = (todos_x - cx) ** 2 + (todos_y - cy) ** 2
+        d2[idx] = np.inf                       # su propia posición actual
+        if float(d2.min()) < sep_sq:
+            continue                           # invadiría a un vecino
+
+        todos_x[idx] = cx
+        todos_y[idx] = cy
+        gen.x, gen.y = cx, cy
 
     return ind
 

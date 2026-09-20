@@ -147,13 +147,49 @@ def _crear_aleatorio(nidos_entrada, gestor, base, nidos_ocupados):
         lim = gestor.limites_zona(f"zona_{especie}")
         if not lim:
             continue
-        pos = list(gestor.slots_suficientes(f"zona_{especie}", e['sep_min'],
-                                            nidos_ocupados, len(ids)))
+        # Colocación LIBRE, no sobre la rejilla.
+        #
+        # La mitad aleatoria de la población existe para aportar diversidad de
+        # posiciones. Si nace sobre las mismas casillas que la mitad sembrada,
+        # la población entera arranca en la rejilla y ninguna mutación logra
+        # sacarla de ahí: medido, las 100 colocaciones quedaban en 27 columnas
+        # por 10 filas, idénticas al llenado secuencial.
+        #
+        # Se muestrea por rechazo: puntos al azar dentro de la zona que
+        # respeten la separación frente a lo ya colocado y a lo ya enterrado.
+        lim = gestor.limites_zona(f"zona_{especie}")
+        if not lim:
+            continue
+        sep = float(e['sep_min'])
+        paso = gestor.separacion_efectiva.get(f"zona_{especie}")
+        if paso:
+            sep = min(sep, float(paso))
+        sep_sq = (sep - 0.05) ** 2
+
+        ocupadas = [(float(o['x']), float(o['y']))
+                    for o in (nidos_ocupados or [])]
+        pos = []
+        for _ in ids:
+            colocado = None
+            for _intento in range(40):
+                cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
+                cy = round(random.uniform(lim['ymin'], lim['ymax']), 1)
+                if all((cx - ox) ** 2 + (cy - oy) ** 2 >= sep_sq
+                       for ox, oy in ocupadas):
+                    colocado = (cx, cy)
+                    break
+            if colocado is None:
+                # Zona apretada: se cae a la rejilla, que siempre es válida.
+                libres = [s for s in gestor.slots_suficientes(
+                    f"zona_{especie}", e['sep_min'], nidos_ocupados, len(ids))
+                    if s not in pos]
+                if not libres:
+                    break
+                colocado = libres[0]
+            pos.append(colocado)
+            ocupadas.append(colocado)
         if not pos:
             continue
-        random.shuffle(pos)
-        while len(pos) < len(ids):
-            pos.append(pos[-1])
 
         for id_nido, (x, y) in zip(ids, pos):
             p = round(random.uniform(e['prof_min'], e['prof_max']), 1)
