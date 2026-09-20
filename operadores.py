@@ -4,9 +4,28 @@ import numpy as np
 from cromosoma import Individuo, ORDENES_ZONAS, resolver_gestor
 
 # Fracción de la descendencia a la que se le aplica la reparación de orden.
-# No es 1.0 a propósito: aplicada siempre, pega a toda la población a la misma
-# rejilla y el AG deja de colocar nidos para limitarse a elegir casillas.
-_PROB_REPARACION = 0.35
+#
+# MEDIDO, no elegido a mano. Con 100 nidos nuevos sobre 70 enterrados, dos
+# corridas por valor (pop=30, gen=40):
+#
+#   p_rep   aptitud   cumplimiento separación   nidos en riesgo letal
+#   0.00    0.7272    1.000                     45.0
+#   0.15    0.7119    0.990                     46.5
+#   0.35    0.7059    0.990                     47.5
+#   0.65    0.6991    0.980                     47.5
+#   1.00    0.5524    0.880                     48.0
+#
+# La reparación no ayuda: perjudica de forma monótona. Aplicada siempre -que
+# era el comportamiento original- pega a toda la población a la misma rejilla,
+# el AG deja de colocar nidos para limitarse a elegir casillas y el
+# cumplimiento de separación cae a 0.88.
+#
+# Queda en 0.0. El código se conserva porque el llenado en serpentina tiene un
+# valor OPERATIVO que la aptitud no mide: el personal siembra recorriendo
+# hileras, y una distribución dispersa es más incómoda de ejecutar en campo. Si
+# alguna vez ese criterio pesa más que el biológico, subir este valor y asumir
+# el costo que muestra la tabla.
+_PROB_REPARACION = 0.0
 
 
 def seleccion_torneo(poblacion, k=3):
