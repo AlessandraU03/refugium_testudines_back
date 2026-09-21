@@ -786,6 +786,148 @@ def handle_exception(e):
 
 
 
+@app.route('/api/recomendacion')
+def recomendacion():
+    """Que conviene hacer con el corral, dado que el presupuesto es limitado.
+
+    Responde las tres preguntas del riego -cuanto, donde y como- y la del
+    reemplazo de arena, cuantificando en cada caso el costo en recursos y la
+    ganancia esperada en eclosion y proporcion sexual.
+
+    No decide por el Santuario: presenta el intercambio. La dosis que mas
+    rinde por litro y la que mas acerca al equilibrio sexual NO son la misma,
+    y esa eleccion es de quien administra el corral.
+
+    Parametros de consulta: mes (1-12), largo_m, ancho_m, prof_cm.
+    """
+    import termico
+
+    mes     = int(request.args.get('mes', datetime.today().month))
+    largo_m = float(request.args.get('largo_m', float(CORRAL['largo_cm']) / 100.0))
+    ancho_m = float(request.args.get('ancho_m', float(CORRAL['ancho_cm']) / 100.0))
+    prof_cm = float(request.args.get('prof_cm', BASE['golfina']['prof_opt']))
+
+    area_m2 = largo_m * ancho_m
+    base_t  = termico.temperatura_base(mes)
+    huevos  = termico.huevos_del_mes(mes)
+    pe      = PARAMS_ESPECIE.get('golfina', {})
+
+    # Sombra representativa: la del centro del corral, que es donde el toldo
+    # protege mas. El perimetro se trata aparte, mas abajo.
+    sombra_centro = 0.0
+    sombra_borde  = 0.0
+    if SITIO is not None:
+        dia = datetime(datetime.today().year, mes, 15).timetuple().tm_yday
+        sombra_centro = solar.fraccion_sombra_dia(largo_m * 50, ancho_m * 50, dia, SITIO)
+        sombra_borde  = solar.fraccion_sombra_dia(50.0, 50.0, dia, SITIO)
+
+    def escenario(mm, sombra, area_regada_m2):
+        t_pts = termico.temperatura_pts(base_t, n_huevos=huevos, sombra=sombra,
+                                        riego=mm, prof_cm=prof_cm)
+        t_fin = termico.temperatura_ultimo_tercio(base_t, n_huevos=huevos,
+                                                  densidad_m2=1.0, sombra=sombra,
+                                                  riego=mm, prof_cm=prof_cm)
+        sexo = termico.proporcion_sexual(t_pts, pe.get('pivote'), pe.get('s'))
+        riesgo = termico.riesgo_letal(t_fin)
+        # 1 mm sobre 1 m2 es 1 litro
+        m3 = mm * area_regada_m2 / 1000.0
+        return {
+            'dosis_mm':        mm,
+            'area_regada_m2':  round(area_regada_m2, 1),
+            'agua_m3':         round(m3, 1),
+            'temp_pts_c':      t_pts,
+            'pct_hembras':     sexo['pct_hembras'],
+            'pct_machos':      sexo['pct_machos'],
+            'margen_letal_c':  riesgo['margen_c'],
+            'en_riesgo':       riesgo['en_riesgo'],
+        }
+
+    # --- CUANTO regar -----------------------------------------------------
+    sin_riego = escenario(0, sombra_centro, area_m2)
+    dosis = []
+    for mm in (0, 50, 100, 200, 323, 500, 721):
+        e = escenario(mm, sombra_centro, area_m2)
+        ganancia = sin_riego['temp_pts_c'] - e['temp_pts_c']
+        e['ganancia_c'] = round(ganancia, 2)
+        e['grados_por_m3'] = round(ganancia / e['agua_m3'], 4) if e['agua_m3'] else None
+        dosis.append(e)
+
+    utiles = [e for e in dosis if e['grados_por_m3']]
+    mas_eficiente = max(utiles, key=lambda e: e['grados_por_m3']) if utiles else None
+    # La que mas acerca al equilibrio sexual, sin reparar en el costo
+    mas_equilibrada = min(dosis, key=lambda e: abs(e['pct_hembras'] - 50.0))
+
+    # --- DONDE regar ------------------------------------------------------
+    # El toldo cubre por arriba pero los lados estan abiertos, asi que el sol
+    # bajo entra de costado y el perimetro se calienta mas que el centro. Regar
+    # solo esa franja cuesta menos agua y ataca donde duele.
+    franja_m = 1.5
+    area_borde = max(0.0, area_m2 - max(0.0, largo_m - 2 * franja_m) * max(0.0, ancho_m - 2 * franja_m))
+    mm_rec = mas_eficiente['dosis_mm'] if mas_eficiente else 100
+    donde = {
+        'franja_m':        franja_m,
+        'area_perimetro_m2': round(area_borde, 1),
+        'area_total_m2':   round(area_m2, 1),
+        'sombra_centro':   round(sombra_centro, 3),
+        'sombra_perimetro': round(sombra_borde, 3),
+        'solo_perimetro':  escenario(mm_rec, sombra_borde, area_borde),
+        'todo_el_corral':  escenario(mm_rec, sombra_centro, area_m2),
+        'perimetro_sin_regar': escenario(0, sombra_borde, area_borde),
+    }
+
+    # --- COMO regar -------------------------------------------------------
+    como = {
+        'frecuencia':  'diaria, por la tarde',
+        'dias':        termico.RIEGO_DIAS,
+        'reparto':     'la misma cantidad cada dia',
+        'ventana':     'durante el periodo termosensible, que es cuando se define el sexo',
+        'fuente':      ('Hill, Paladino, Spotila y Santidrian Tomillo (2015), PLOS ONE '
+                        '10(6):e0129528: regaron a diario por la tarde, en cantidades '
+                        'iguales, durante 31 dias'),
+        'advertencia': ('Los coeficientes corresponden a ESA pauta. Regar menos veces, '
+                        'o de golpe, no produce el mismo enfriamiento. El estudio no '
+                        'midio el efecto del riego sobre la eclosion ni sobre la '
+                        'humedad del nido: sus propios autores lo dejan como pendiente.'),
+    }
+
+    # --- CAMBIO DE ARENA --------------------------------------------------
+    prof_max_cm = max(BASE[e]['prof_max'] for e in BASE)
+    arena = {
+        'recomendacion':   'reemplazar la arena al terminar cada temporada',
+        'volumen_m3':      round(area_m2 * prof_max_cm / 100.0, 1),
+        'profundidad_cm':  prof_max_cm,
+        'motivo':          ('En corrales que reutilizan arena se acumulan hongos y '
+                            'bacterias patogenas. Se midio 5.2 % de Fusarium solani '
+                            '(FSSC) en corrales contra 1.3 % en playa natural.'),
+        'fuente':          ('Hoh, Lin, Liu, Mohamed Sidique y Tsai (2020). Nest '
+                            'microbiota and pathogen abundance in sea turtle '
+                            'hatcheries. Fungal Ecology, 47, 100964.'),
+        'advertencia':     ('La fuente recomienda el reemplazo por temporada y mide la '
+                            'carga de patogenos, pero NO da una ganancia de eclosion en '
+                            'puntos porcentuales. No se inventa una cifra: el volumen '
+                            'de arena es el costo, y la reduccion de patogenos el '
+                            'beneficio documentado.'),
+    }
+
+    return jsonify({
+        'mes': mes,
+        'corral': {'largo_m': largo_m, 'ancho_m': ancho_m, 'area_m2': round(area_m2, 1)},
+        'profundidad_cm': prof_cm,
+        'cuanto': {
+            'escenarios': dosis,
+            'mas_eficiente': mas_eficiente,
+            'mas_equilibrada': mas_equilibrada,
+            'nota': ('La dosis que mas rinde por litro y la que mas acerca al '
+                     'equilibrio sexual no son la misma. Elegir entre ellas es una '
+                     'decision de presupuesto, no del modelo.'),
+        },
+        'donde': donde,
+        'como': como,
+        'arena': arena,
+        'supuestos': (SITIO or {}).get('supuestos', []),
+    })
+
+
 # Arranque como script. Tiene que quedar al final del archivo: app.run()
 # bloquea, asi que cualquier @app.route() escrito debajo nunca llegaria a
 # registrarse y esa ruta responderia 404 al correr 'python api.py'.

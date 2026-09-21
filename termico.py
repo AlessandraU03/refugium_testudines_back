@@ -157,6 +157,28 @@ DELTA_T_SOMBRA_RIEGO_C  = -4.0   # sombra + riego
 #     interpolar una reduccion mayor en lo somero.
 DELTA_T_SOMBRA_POR_PROF_C = [(45.0, -2.2), (75.0, -1.3)]
 
+#     DOSIS DE RIEGO. Hill et al. regaron a diario por la tarde, en cantidades
+#     iguales cada dia durante 31 dias, con tres volumenes tomados de la
+#     pluviometria historica del sitio:
+#
+#         100 mm (ano de El Nino)   -> -1.8 C a 45 cm, -0.6 C a 75 cm
+#         323 mm (ano neutro)       -> -2.3 C a 45 cm, -0.7 C a 75 cm
+#         721 mm (ano de La Nina)   -> -2.4 C a 45 cm, -0.7 C a 75 cm
+#
+#     La curva tiene rendimientos decrecientes muy marcados: triplicar el agua
+#     de 100 a 323 mm gana medio grado, y duplicarla otra vez gana una decima.
+#     Por eso el riego admite una DOSIS y no un si/no: con presupuesto limitado
+#     la dosis baja rinde muchisimo mas por litro, y esa es una recomendacion
+#     que el sistema puede hacer con respaldo.
+CURVA_RIEGO_MM = [
+    (0.0,   {45.0: 0.0,  75.0: 0.0}),
+    (100.0, {45.0: -1.8, 75.0: -0.6}),
+    (323.0, {45.0: -2.3, 75.0: -0.7}),
+    (721.0, {45.0: -2.4, 75.0: -0.7}),
+]
+RIEGO_DOSIS_REFERENCIA_MM = 323.0   # la que corresponde al anclaje combinado
+RIEGO_DIAS = 31                     # duracion del riego en el experimento
+
 #     ATENUACION DE REFERENCIA. SUPUESTO DECLARADO, no un dato del articulo.
 #
 #     Hill et al. (2015) no reportan el porcentaje de sombreo de sus parcelas:
@@ -480,6 +502,44 @@ def _fraccion_sombra(sombra):
     return max(0.0, min(1.0, float(sombra)))
 
 
+def dosis_riego_mm(riego):
+    """Normaliza el argumento `riego` a milimetros de agua.
+
+    Acepta un booleano -por compatibilidad con las llamadas que solo distinguen
+    regado de no regado, donde True significa la dosis media de Hill- o un
+    numero de milimetros, que es lo que permite recomendar CUANTO regar.
+    """
+    if riego is None or riego is False:
+        return 0.0
+    if riego is True:
+        return RIEGO_DOSIS_REFERENCIA_MM
+    return max(0.0, float(riego))
+
+
+def _riego_por_dosis(mm, prof_cm):
+    """Enfriamiento del riego a esa dosis y profundidad, interpolando la curva."""
+    p = 45.0 if prof_cm is None else float(prof_cm)
+
+    def a_prof(tabla):
+        # Entre las dos profundidades medidas, 45 y 75 cm, se interpola.
+        d45, d75 = tabla[45.0], tabla[75.0]
+        if p <= 45.0:
+            return d45
+        if p >= 75.0:
+            return d75
+        return d45 + (p - 45.0) / 30.0 * (d75 - d45)
+
+    puntos = [(mm_i, a_prof(t)) for mm_i, t in CURVA_RIEGO_MM]
+    if mm <= puntos[0][0]:
+        return puntos[0][1]
+    if mm >= puntos[-1][0]:
+        return puntos[-1][1]
+    for (m0, d0), (m1, d1) in zip(puntos, puntos[1:]):
+        if m0 <= mm <= m1:
+            return d0 + (mm - m0) / (m1 - m0) * (d1 - d0)
+    return puntos[-1][1]
+
+
 def _sombra_plena_por_prof(prof_cm):
     """Reduccion que da la sombra plena a esa profundidad, interpolando Hill."""
     if prof_cm is None:
@@ -515,11 +575,20 @@ def _delta_mitigacion(sombra, riego, prof_cm=None, atenuacion_malla=None):
     f = max(0.0, min(1.0, f))
 
     sombra_plena = _sombra_plena_por_prof(prof_cm)
+    dosis = dosis_riego_mm(riego)
 
-    if riego:
-        # De -2.3 C (riego solo) a -4.0 C (sombra plena + riego).
-        return DELTA_T_RIEGO_C + f * (DELTA_T_SOMBRA_RIEGO_C - DELTA_T_RIEGO_C)
-    return f * sombra_plena
+    if dosis <= 0:
+        return f * sombra_plena
+
+    riego_solo = _riego_por_dosis(dosis, prof_cm)
+
+    # Sombra y riego juntos NO suman sus efectos: Hill midio -2.2 y -2.3 por
+    # separado pero -4.0 al combinarlos, o sea 1.7 C de aporte extra de la
+    # sombra sobre la arena ya regada. Ese aporte se midio con la dosis media,
+    # y aqui se SUPONE igual para las demas dosis, que es la unica manera de
+    # extender la interaccion sin inventar una superficie de respuesta.
+    aporte_sombra = DELTA_T_SOMBRA_RIEGO_C - DELTA_T_RIEGO_C
+    return riego_solo + f * aporte_sombra
 
 
 # =====================================================================
