@@ -469,6 +469,88 @@ def _sombras(corral=None):
 # corral, este objetivo orienta la búsqueda pero sus cifras no son un hallazgo.
 OBJETIVO_PCT_HEMBRAS = 55.9
 
+# Peso del termino POR NIDO dentro del objetivo de sexo. El resto lo aporta la
+# proporcion AGREGADA de la cohorte.
+#
+# POR QUE HABIA DOS MEDIDAS. La proporcion que importa biologicamente es la
+# agregada: lo que se libera al mar es una cohorte, y a la poblacion le da
+# igual que cada nido acierte el 55.9 % si el conjunto sale equilibrado. Una
+# cohorte de mitad nidos machos y mitad hembras libera un 50/50 perfectamente
+# sano. Esa es la cifra que la interfaz reporta.
+#
+# Pero la aptitud NO optimizaba esa: optimizaba el promedio de la calidad nido
+# por nido. El argumento era el gradiente. La proporcion agregada es un solo
+# numero para toda la colocacion, y mover un nido de la esquina al centro la
+# cambia 0.015 puntos sobre 170 nidos; el promedio por nido si le da a cada
+# nido su propia senal. De modo que la interfaz reportaba una cifra y el
+# algoritmo perseguia otra.
+#
+# MEDIDO: EL TERMINO POR NIDO NO APORTA NADA. Cinco valores del peso, juzgados
+# por la calidad AGREGADA del resultado final, que es el objetivo real.
+#
+#   140/45/15 nidos en 30 x 8 m (corral apretado, donde la posicion decide),
+#   mes 9, pop=30, gen=40, 3 repeticiones por valor:
+#
+#     peso   calidad agregada   % hembras   crias     nidos en riesgo
+#     0.00   0.7938             76.5        13275.0   0
+#     0.25   0.7896             76.9        13275.0   0
+#     0.50   0.7944             76.5        13275.0   0
+#     0.75   0.7949             76.4        13275.0   0
+#     1.00   0.7946             76.4        13275.0   0
+#
+#   70/25/5 nidos en 30 x 40 m (el corral de trabajo), pop=50, gen=100,
+#   2 repeticiones:
+#
+#     peso   calidad agregada   % hembras   crias
+#     0.00   0.8513             70.8        6679.0
+#     0.25   0.8496             70.9        6679.0
+#     0.50   0.8565             70.3        6679.0
+#     0.75   0.8517             70.7        6679.0
+#     1.00   0.8502             70.9        6679.0
+#
+# El rango completo es 0.005 en un caso y 0.007 en el otro, sin tendencia: es
+# ruido entre repeticiones, no efecto del peso. Yo esperaba que el termino por
+# nido mejorara el resultado y no lo hace.
+#
+# Queda en 0.0, o sea la aptitud persigue EXACTAMENTE la proporcion agregada
+# que la interfaz reporta. Se elige ese valor y no otro porque, sin diferencia
+# medible, hay que quedarse con el objetivo biologico y sin coeficientes de
+# modelado que no se puedan justificar. La funcion por nido se conserva: se
+# reporta al lado de la agregada para poder ver si divergen, y si algun dia una
+# medicion muestra que el gradiente si hace falta, subir este valor y adjuntar
+# la tabla que lo demuestre.
+PESO_SEXO_POR_NIDO = 0.0
+
+
+def _calidad_sexo_agregada(hembras, crias):
+    """Cercania al objetivo de la proporcion sexual de la COHORTE.
+
+    Pesada por crias, no por nidos: un nido de 93 huevos aporta mas cohorte que
+    uno de 77, y lo que se libera al mar son crias.
+    """
+    import numpy as np
+    if len(hembras) == 0:
+        return 1.0
+    total = float(np.sum(crias))
+    if total <= 0:
+        return 1.0
+    pct = 100.0 * float(np.sum(crias * hembras / 100.0)) / total
+    return float(np.clip(1.0 - abs(pct - OBJETIVO_PCT_HEMBRAS) / 100.0, 0.0, 1.0))
+
+
+def _calidad_sexo_por_nido(hembras):
+    """Promedio de la cercania al objetivo NIDO POR NIDO.
+
+    No es lo mismo que la cercania del promedio, y esa diferencia es lo que le
+    da gradiente a la busqueda: aqui cada nido cuenta por separado, asi que
+    colocar uno mejor si mueve el numero.
+    """
+    import numpy as np
+    if len(hembras) == 0:
+        return 1.0
+    return float(np.clip(
+        np.mean(1.0 - np.abs(hembras - OBJETIVO_PCT_HEMBRAS) / 100.0), 0.0, 1.0))
+
 # Peso del objetivo de sexo. Misma escalarización lexicográfica que _EPS_ORDEN:
 # la proporción sexual sólo desempata entre colocaciones que ya son
 # equivalentes en eclosión. El orden no es arbitrario: una cría que no eclosiona
@@ -658,21 +740,24 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
     margenes = np.clip(arr['margen_c'][:n_propios] / MARGEN_COMODO, 0.0, 1.0)
     letal = float(np.mean(margenes)) if len(margenes) else 1.0
 
-    # Sexo: promedio de la calidad NIDO POR NIDO, no calidad del promedio.
-    #
-    # La diferencia no es cosmética. Evaluando la proporción agregada de la
-    # cohorte, mover un nido de la esquina al centro del corral cambiaba el
-    # promedio en 0.015 puntos sobre 170 nidos: invisible para la búsqueda, y
-    # por eso el AG dejaba nidos pegados al borde, donde el sol entra de lado
-    # por la mañana y por la tarde. Promediando la calidad de cada nido, cada
-    # uno aporta su propio gradiente y colocarlo mejor sí cuenta.
+    # Sexo: el OBJETIVO es la proporción agregada de la cohorte; el término por
+    # nido va como modelado de la búsqueda, con peso medido. Ver
+    # PESO_SEXO_POR_NIDO arriba para por qué hacen falta los dos.
     #
     # Se miden sólo los nidos de esta jornada: los ya enterrados no se pueden
     # mover, y promediarlos dentro sólo diluye la señal de lo que el AG decide.
     hembras = arr['pct_hembras'][:n_propios]
-    sexo = float(np.clip(
-        np.mean(1.0 - np.abs(hembras - OBJETIVO_PCT_HEMBRAS) / 100.0),
-        0.0, 1.0)) if len(hembras) else 1.0
+    crias_n = arr['crias'][:n_propios]
+    sexo_agregado = _calidad_sexo_agregada(hembras, crias_n)
+    sexo_por_nido = _calidad_sexo_por_nido(hembras)
+    sexo = ((1.0 - PESO_SEXO_POR_NIDO) * sexo_agregado +
+            PESO_SEXO_POR_NIDO * sexo_por_nido)
+
+    # Las dos quedan guardadas en el individuo: la interfaz reporta la
+    # agregada, y tener la otra al lado permite ver si divergen en lugar de
+    # descubrirlo comparando dos pestañas.
+    individuo.sexo_agregado = round(sexo_agregado, 4)
+    individuo.sexo_por_nido = round(sexo_por_nido, 4)
 
     efecto_prof = np.mean([
         calcular_efecto_profundidad_cientifico(

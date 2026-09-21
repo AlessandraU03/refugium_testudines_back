@@ -12,7 +12,9 @@ from cromosoma import (cargar_base_conocimiento, GestorZonas, GestoresZonas,
 from ag import ejecutar_ag
 from inicializacion import individuo_secuencial
 from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
-                        calcular_fitness)
+                        calcular_fitness, OBJETIVO_PCT_HEMBRAS,
+                        PESO_SEXO_POR_NIDO, _calidad_sexo_agregada,
+                        _calidad_sexo_por_nido)
 
 # Servidor API Flask - Refugium Testudinis
 app  = Flask(__name__)
@@ -131,11 +133,37 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
     sexo = termico.proporcion_sexual(t_pts, pe.get('pivote'), pe.get('s'))
     pct_hembra = sexo['pct_hembras']
     pct_macho = sexo['pct_machos']
+    # DESGLOSE DEL ENFRIAMIENTO: cuanto aporta la malla y cuanto el riego.
+    #
+    # Sin esto, la interfaz mostraba una temperatura sin decir de donde salia.
+    # Importa para la recomendacion economica: si un nido esta a salvo por la
+    # malla, regarlo no compra nada; si lo esta por el riego, dejar de regar lo
+    # pone en riesgo. Son dos intervenciones con costos muy distintos -la malla
+    # ya esta instalada, el agua se paga cada temporada- y hay que poder
+    # atribuir el grado a la que lo produjo.
+    #
+    # Se calculan por diferencia contra el mismo modelo: descubierto y sin
+    # regar es la referencia, y cada intervencion es lo que resta respecto a
+    # ella. Asi los tres numeros suman la temperatura final por construccion.
+    t_base = termico.temperatura_base(mes)
+    t_desnudo = termico.temperatura_pts(t_base, n_huevos=huevos, sombra=0.0,
+                                        riego=False, prof_cm=prof_cm)
+    t_solo_malla = termico.temperatura_pts(t_base, n_huevos=huevos,
+                                           sombra=sombra, riego=False,
+                                           prof_cm=prof_cm)
+    delta_malla = round(t_solo_malla - t_desnudo, 2)
+    delta_riego = round(t_pts - t_solo_malla, 2)
+
     return {
         'temp_estimada_pts': sexo['temp_pts_c'],
         'pct_machos': pct_macho,
         'pct_hembras': pct_hembra,
         'huevos_por_nido': round(float(huevos), 1),
+        'sombra': round(float(sombra), 3),
+        'riego': bool(riego),
+        'temp_sin_intervenir_c': round(t_desnudo, 2),
+        'delta_malla_c': delta_malla,
+        'delta_riego_c': delta_riego,
         'sesgo': ('Feminizado (Predominio Hembras)' if pct_hembra > 65.0
                   else ('Masculinizado (Predominio Machos)' if pct_macho > 65.0
                         else 'Equilibrado (~50/50)')),
@@ -722,6 +750,19 @@ def ejecutar():
                                        params_especie=PARAMS_ESPECIE)
         res = r['resumen']
         dens = [q['densidad_m2'] for q in r['por_nido']]
+
+        # Las DOS medidas de proporcion sexual, calculadas con las mismas
+        # funciones que usa la aptitud. La agregada es el objetivo -es la
+        # cohorte que se libera al mar- y la otra se reporta al lado para poder
+        # ver si divergen. Ese era el problema: la interfaz mostraba la
+        # agregada mientras la aptitud optimizaba el promedio por nido, sin que
+        # nada dijera cual perseguia el algoritmo.
+        arr = r.get('arrays') or {}
+        if 'pct_hembras' in arr and 'crias' in arr:
+            cal_agr  = _calidad_sexo_agregada(arr['pct_hembras'], arr['crias'])
+            cal_nido = _calidad_sexo_por_nido(arr['pct_hembras'])
+        else:
+            cal_agr = cal_nido = 1.0
         return {
             'fitness':            round(float(ind.fitness), 6),
             'indice_eclosion':    r['indice_eclosion'],
@@ -732,6 +773,13 @@ def ejecutar():
             'temp_pts_media_c':   res['temp_pts_media_c'],
             'nidos_en_riesgo':    res['nidos_en_riesgo_termico'],
             'densidad_maxima_m2': round(max(dens), 2) if dens else 0.0,
+            # Que tan cerca queda la cohorte del objetivo de proporcion sexual.
+            # Es el segundo objetivo del AG, expresado en la misma escala 0-1
+            # que la eclosion para que se puedan comparar.
+            'calidad_sexo':       round(cal_agr, 4),
+            'calidad_sexo_por_nido': round(cal_nido, 4),
+            'objetivo_pct_hembras': OBJETIVO_PCT_HEMBRAS,
+            'peso_sexo_por_nido':   PESO_SEXO_POR_NIDO,
         }
 
     rend_ag  = rendir(mejor)
