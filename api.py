@@ -75,7 +75,7 @@ def obtener_sector_fisico(x_cm, y_cm, corral=None):
 
 def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
                              densidad_m2=0.0, sombra=None, especie='golfina',
-                             x_cm=None, y_cm=None, riego=None):
+                             x_cm=None, y_cm=None, riego=None, sitio=None):
     """Proporcion sexual de un nido. Delega en termico.py.
 
     Antes esta funcion tenia su propia copia del modelo: su tabla de
@@ -93,16 +93,22 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
 
     mes = f_siembra_dt.month
 
+    # Sitio de ESTA jornada: si el corral no es el medido en campo, la malla y
+    # el riego vienen reescalados a su tamano. Sin esto, un corral mas ancho se
+    # evaluaba con la malla del corral chico y el resto quedaba a pleno sol.
+    if sitio is None:
+        sitio = SITIO
+
     # Sombra del nido. Con coordenadas y configuracion de sitio se resuelve por
     # geometria solar: la fraccion de la insolacion del dia que la malla le
     # intercepta, dada su posicion, la orientacion del corral, la altura de la
     # malla, la fecha y la latitud. Dos nidos del mismo corral pueden diferir
     # mas de cuarenta puntos de hembras solo por donde quedaron.
     if sombra is None:
-        if SITIO is not None and x_cm is not None and y_cm is not None:
+        if sitio is not None and x_cm is not None and y_cm is not None:
             sombra = solar.fraccion_sombra_dia(
                 float(x_cm), float(y_cm), f_siembra_dt.timetuple().tm_yday,
-                SITIO)
+                sitio)
         else:
             sombra = termico.CORRAL_CON_MALLA_SOMBRA
 
@@ -111,10 +117,10 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
     # de rendimiento la calculaba CON riego, y la misma jornada aparecia con
     # 96.9 % de hembras en el diagrama y 68.3 % en el resumen.
     if riego is None:
-        riego = bool(SITIO and SITIO.get('riego_activo')
+        riego = bool(sitio and sitio.get('riego_activo')
                      and (x_cm is None or y_cm is None
                           or termico.en_sombra(float(x_cm), float(y_cm),
-                                               [SITIO['riego']])))
+                                               [sitio['riego']])))
 
     pe = PARAMS_ESPECIE.get(especie, {})
     huevos = termico.huevos_del_mes(mes) if n_huevos in (None, 0) else n_huevos
@@ -288,6 +294,16 @@ def ejecutar():
     corral['area_m2'] = round(area_m2, 1)
     corral['capacidad_maxima_nidos_simultaneos'] = int(area_m2)  # 1 nido/m2
 
+    # Malla y riego reescalados al corral de esta jornada. En sitio.csv estan
+    # en centimetros del corral medido en campo (30 x 8 m); si la jornada pide
+    # otro tamano, esos centimetros no lo siguen. El dato de campo es que el
+    # toldo cubre el corral COMPLETO, y esa es la relacion que hay que
+    # conservar, no los centimetros: con un corral de 30 x 40 m sin reescalar,
+    # la malla cubriria la quinta parte y el 80 % de los nidos se evaluaria
+    # como si no hubiera malla.
+    sitio = (solar.ajustar_a_corral(SITIO, corral['largo_cm'], corral['ancho_cm'])
+             if SITIO is not None else None)
+
     # Los seis repartos posibles de las franjas. El AG elige uno: con la malla
     # sombra cubriendo parte del corral, ese reparto decide a que especie le
     # toca el fresco. Medido en septiembre, prieta pasa de 0.11 a 0.97 de
@@ -365,11 +381,11 @@ def ejecutar():
                 'semana_info':      calcular_semana_incubacion(f_siembra, datetime.today(), BASE, g.especie),
                 'sombra_solar':     (round(solar.fraccion_sombra_dia(
                                         g.x, g.y, f_siembra.timetuple().tm_yday,
-                                        SITIO), 3)
-                                     if SITIO is not None else None),
+                                        sitio), 3)
+                                     if sitio is not None else None),
                 'proporcion_sexual': calcular_modelo_girondot(
                                         f_siembra, g.prof, especie=g.especie,
-                                        x_cm=g.x, y_cm=g.y)
+                                        x_cm=g.x, y_cm=g.y, sitio=sitio)
             } for g in ind.genes],
         }
 
@@ -408,7 +424,7 @@ def ejecutar():
                                   % (w['pts_inicio_dia'], w['pts_fin_dia']),
             'proporcion_sexual':  calcular_modelo_girondot(
                                       f_siembra, prof_media, especie=esp,
-                                      x_cm=x_media, y_cm=y_media),
+                                      x_cm=x_media, y_cm=y_media, sitio=sitio),
         })
 
     # Validación: tasa estimada contra la histórica, una fila por especie.
@@ -611,7 +627,7 @@ def ejecutar():
     # letal, que no es la situacion de Puerto Arista.
     # Respaldo binario por si no hay geometria solar: la misma malla declarada
     # en sitio.csv, no un corral cubierto por completo.
-    sombra_corral = ([dict(SITIO['malla'])] if SITIO is not None else
+    sombra_corral = ([dict(sitio['malla'])] if sitio is not None else
                      ([{'xmin': 0.0, 'ymin': 0.0,
                         'xmax': float(corral['largo_cm']),
                         'ymax': float(corral['ancho_cm'])}]
@@ -633,7 +649,7 @@ def ejecutar():
                                        mes=f_siembra.month,
                                        rectangulos_sombra=sombra_corral,
                                        huevos_por_defecto=huevos_mes,
-                                       sitio=SITIO,
+                                       sitio=sitio,
                                        dia_del_anio=f_siembra.timetuple().tm_yday,
                                        params_especie=PARAMS_ESPECIE)
         res = r['resumen']
@@ -690,14 +706,16 @@ def ejecutar():
                           if orden_fijo else
                           'Corral vacio: el AG eligio el reparto, y queda fijo '
                           'para el resto de la temporada.'),
-        'sitio':         ({'latitud': SITIO['latitud'],
-                           'longitud': SITIO['longitud'],
-                           'orientacion': SITIO['orientacion'],
-                           'malla': SITIO['malla'],
-                           'altura_malla': SITIO['altura_malla'],
-                           'atenuacion_malla': SITIO['atenuacion_malla'],
-                           'supuestos': SITIO['supuestos']}
-                          if SITIO is not None else None),
+        'sitio':         ({'latitud': sitio['latitud'],
+                           'longitud': sitio['longitud'],
+                           'orientacion': sitio['orientacion'],
+                           'malla': sitio['malla'],
+                           'riego': sitio['riego'],
+                           'riego_activo': sitio['riego_activo'],
+                           'altura_malla': sitio['altura_malla'],
+                           'atenuacion_malla': sitio['atenuacion_malla'],
+                           'supuestos': sitio['supuestos']}
+                          if sitio is not None else None),
         'nidos_previos': nidos_previos_serial,
         'n_previos':     len(nidos_activos),
         'total_corral':  total_corral,
@@ -833,9 +851,13 @@ def recomendacion():
     sombra_centro = 0.0
     sombra_borde  = 0.0
     if SITIO is not None:
+        # Misma correccion que en /api/ag: la malla se reescala al corral que
+        # se esta consultando, o la recomendacion de riego se calcularia con la
+        # sombra de un corral que no es este.
+        sitio_rec = solar.ajustar_a_corral(SITIO, largo_m * 100, ancho_m * 100)
         dia = datetime(datetime.today().year, mes, 15).timetuple().tm_yday
-        sombra_centro = solar.fraccion_sombra_dia(largo_m * 50, ancho_m * 50, dia, SITIO)
-        sombra_borde  = solar.fraccion_sombra_dia(50.0, 50.0, dia, SITIO)
+        sombra_centro = solar.fraccion_sombra_dia(largo_m * 50, ancho_m * 50, dia, sitio_rec)
+        sombra_borde  = solar.fraccion_sombra_dia(50.0, 50.0, dia, sitio_rec)
 
     def escenario(mm, sombra, area_regada_m2):
         t_pts = termico.temperatura_pts(base_t, n_huevos=huevos, sombra=sombra,

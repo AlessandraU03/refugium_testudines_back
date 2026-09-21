@@ -438,6 +438,20 @@ def _cargar_sombras(carpeta_csv=None):
 SOMBRAS = _cargar_sombras()
 
 
+def _sombras(corral=None):
+    """La malla del corral que se esta evaluando, reescalada si hace falta.
+
+    `SOMBRAS` trae los centimetros del corral medido en campo. Si la jornada
+    pide otro tamano, hay que reescalarla o la malla deja de cubrirlo: con un
+    corral de 30 x 40 m, la malla de 0-800 cm de ancho cubriria la quinta parte
+    de la superficie y el 80 % de los nidos se evaluaria a pleno sol.
+    """
+    s = _sitio(corral)
+    if s is None:
+        return SOMBRAS
+    return [dict(s['malla'])]
+
+
 # Proporción sexual de referencia, en porcentaje de hembras.
 #
 # NO es un 50/50 por simetría: las poblaciones de tortuga marina son
@@ -462,15 +476,22 @@ OBJETIVO_PCT_HEMBRAS = 55.9
 _EPS_SEXO = 0.05
 
 
-_SITIO_CACHE = None
+_SITIO_CACHE   = None
+_SITIO_CORRAL  = {}
 
 
-def _sitio():
+def _sitio(corral=None):
     """Configuracion del sitio (latitud, orientacion, malla), leida una vez.
 
     Devuelve None si no hay csv/sitio.csv, y entonces el modelo termico cae al
     criterio binario de sombra que habia antes. Asi el sistema sigue corriendo
     en una instalacion que no haya declarado su geometria.
+
+    Con `corral`, la malla y el riego se reescalan a sus dimensiones. El CSV los
+    declara en centimetros del corral medido en campo, y esos centimetros no
+    siguen al corral cuando la jornada pide otro tamano. El resultado se cachea
+    por dimensiones: dentro de una corrida del AG esto se llama una vez por
+    evaluacion, decenas de miles de veces.
     """
     global _SITIO_CACHE
     if _SITIO_CACHE is None:
@@ -479,10 +500,22 @@ def _sitio():
             _SITIO_CACHE = solar.cargar_sitio()
         except Exception:
             _SITIO_CACHE = False
-    return _SITIO_CACHE or None
+    base = _SITIO_CACHE or None
+    if base is None or corral is None:
+        return base
+
+    try:
+        clave = (float(corral['largo_cm']), float(corral['ancho_cm']))
+    except (KeyError, TypeError, ValueError):
+        return base
+    if clave not in _SITIO_CORRAL:
+        import solar
+        _SITIO_CORRAL[clave] = solar.ajustar_a_corral(base, clave[0], clave[1])
+    return _SITIO_CORRAL[clave]
 
 
-def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None):
+def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None,
+                                corral=None):
     """Corre el modelo térmico sobre esta colocación y devuelve todo de una vez.
 
     De aquí salen los tres términos biológicos de la aptitud: cuántas crías
@@ -538,23 +571,23 @@ def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None):
     # exacta. Usar el mes evita arrastrar la fecha completa por las firmas del
     # AG; si algun dia hace falta precision diaria, hay que threadearla.
     dia = None
-    sitio = _sitio()
+    sitio = _sitio(corral)
     if mes is not None:
         dia = (int(mes) - 1) * 30 + 15
 
     # detalle=False: la aptitud lee los arreglos, no los diccionarios por nido.
     # Construirlos eran 860 000 diccionarios por corrida que nadie consultaba.
     return termico.evaluar_colocacion(
-        vecinos, tasas, mes=mes, rectangulos_sombra=SOMBRAS,
+        vecinos, tasas, mes=mes, rectangulos_sombra=_sombras(corral),
         huevos_por_defecto=termico.huevos_del_mes(mes) if mes else None,
         sitio=sitio, dia_del_anio=dia, params_especie=params_especie,
         detalle=False)
 
 
-def _indice_eclosion(individuo, base, nidos_previos=None, mes=None):
+def _indice_eclosion(individuo, base, nidos_previos=None, mes=None, corral=None):
     """Sólo el índice de eclosión. Se conserva por compatibilidad."""
     return _evaluar_colocacion_termica(
-        individuo, base, nidos_previos, mes)['indice_eclosion']
+        individuo, base, nidos_previos, mes, corral)['indice_eclosion']
 
 
 def calcular_fitness_cientifico(individuo, gestor, base, corral,
@@ -606,7 +639,7 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
         return 0.0
 
     # Un solo recorrido del modelo térmico da los tres términos biológicos.
-    r = _evaluar_colocacion_termica(individuo, base, nidos_previos, mes)
+    r = _evaluar_colocacion_termica(individuo, base, nidos_previos, mes, corral)
     resumen = r['resumen']
     eclosion = r['indice_eclosion']
 

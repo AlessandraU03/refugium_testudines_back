@@ -278,6 +278,10 @@ def cargar_sitio(carpeta_csv=None):
         'altura_malla':     float(v['malla_altura_cm']),
         'atenuacion_malla': float(v['malla_atenuacion']),
         'paso_minutos':     float(v['paso_minutos']),
+        # Corral sobre el que se midieron los rectangulos de abajo. Permite
+        # reescalarlos si se evalua un corral de otro tamano (ajustar_a_corral).
+        'corral_ref_largo_cm': float(v.get('corral_ref_largo_cm', 0) or 0),
+        'corral_ref_ancho_cm': float(v.get('corral_ref_ancho_cm', 0) or 0),
         'malla': {
             'xmin': float(v['malla_xmin_cm']), 'ymin': float(v['malla_ymin_cm']),
             'xmax': float(v['malla_xmax_cm']), 'ymax': float(v['malla_ymax_cm']),
@@ -295,3 +299,53 @@ def cargar_sitio(carpeta_csv=None):
         },
         'supuestos': supuestos,
     }
+
+
+def ajustar_a_corral(sitio, largo_cm, ancho_cm):
+    """Reescala la malla y el riego al corral que se esta evaluando.
+
+    POR QUE HACE FALTA
+    ------------------
+    En sitio.csv la malla y el riego se declaran en centimetros absolutos
+    (0-3000 x 0-800), medidos sobre el corral que existe en campo. Si el corral
+    cambia de tamano -la interfaz permite pedir otras dimensiones- esos
+    rectangulos se quedan donde estaban y dejan de cubrirlo: con un corral de
+    30 x 40 m, una malla de 0-800 cm de ancho cubriria la quinta parte de la
+    superficie y el resto quedaria a pleno sol SIN QUE NADIE LO PIDIERA.
+
+    El dato de campo es que el toldo cubre el corral COMPLETO. Esa relacion
+    -cubre todo- es la que hay que conservar al cambiar de tamano, no los
+    centimetros. Se reescala en proporcion al corral de referencia declarado
+    en el CSV: lo que cubria la mitad del ancho sigue cubriendo la mitad, y lo
+    que cubria todo sigue cubriendo todo.
+
+    No inventa cobertura: si el CSV declara una malla parcial, el resultado
+    sigue siendo parcial en la misma proporcion.
+    """
+    if sitio is None:
+        return None
+
+    ref_largo = float(sitio.get('corral_ref_largo_cm') or 0)
+    ref_ancho = float(sitio.get('corral_ref_ancho_cm') or 0)
+    if ref_largo <= 0 or ref_ancho <= 0:
+        return sitio
+
+    fx = float(largo_cm) / ref_largo
+    fy = float(ancho_cm) / ref_ancho
+    if abs(fx - 1.0) < 1e-9 and abs(fy - 1.0) < 1e-9:
+        return sitio
+
+    def escalar(r):
+        return {'xmin': r['xmin'] * fx, 'xmax': r['xmax'] * fx,
+                'ymin': r['ymin'] * fy, 'ymax': r['ymax'] * fy}
+
+    ajustado = dict(sitio)
+    ajustado['malla'] = escalar(sitio['malla'])
+    ajustado['riego'] = escalar(sitio['riego'])
+    ajustado['corral_largo_cm'] = float(largo_cm)
+    ajustado['corral_ancho_cm'] = float(ancho_cm)
+    # La altura del toldo NO se escala: es una medida fisica de los postes, no
+    # una proporcion del corral. Un corral cinco veces mas ancho no tiene
+    # postes cinco veces mas altos, y de esa altura depende cuanto sol entra
+    # por los lados abiertos.
+    return ajustado

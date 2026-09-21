@@ -3,6 +3,8 @@ latitud_grados,15.94521,no,"Coordenada proporcionada por la usuaria; Plus Code W
 longitud_grados,-93.83029,no,"Coordenada proporcionada por la usuaria; Plus Code W5V9+VV"
 huso_horario_horas,-6,no,"Tiempo del Centro de Mexico (UTC-6)"
 orientacion_grados,115,si,"SUPUESTO. Azimut del eje largo del corral, grados desde el norte en sentido del reloj. 115 grados (ESE) alinea el corral con la linea de costa de Chiapas, que corre NO-SE. PENDIENTE: medir con brujula en campo"
+corral_ref_largo_cm,3000,no,"DATO DE CAMPO: largo del corral sobre el que se midieron los rectangulos de malla y riego de este archivo. Sirve para reescalarlos cuando se evalua un corral de otro tamano: lo que en campo cubre el corral completo debe seguir cubriendolo completo, no quedarse en 3000 cm"
+corral_ref_ancho_cm,800,no,"DATO DE CAMPO: ancho del corral sobre el que se midieron los rectangulos de malla y riego. Ver corral_ref_largo_cm"
 malla_xmin_cm,0,si,"SUPUESTO. Region cubierta por la malla sombra, en coordenadas locales del corral"
 malla_ymin_cm,0,si,SUPUESTO
 malla_xmax_cm,3000,no,"DATO DE CAMPO: fotografia del corral aportada por la usuaria. La malla es un toldo continuo sobre postes que cubre el corral COMPLETO, no una parte. Corrige un supuesto anterior de 1800 cm que yo habia elegido, y que hacia que la posicion del nido cambiara su sombra"
