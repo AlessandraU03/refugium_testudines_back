@@ -11,6 +11,7 @@ from cromosoma import (cargar_base_conocimiento, GestorZonas, GestoresZonas,
                        piso_separacion)
 from ag import ejecutar_ag
 from inicializacion import individuo_secuencial
+from operadores import reparar_hasta_converger
 from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
                         calcular_fitness, OBJETIVO_PCT_HEMBRAS,
                         PESO_SEXO_POR_NIDO, _calidad_sexo_agregada,
@@ -446,6 +447,30 @@ def ejecutar():
     gestor = gestores.para(mejor.idx_orden)
     orden_elegido = list(gestor.orden)
 
+    # GARANTIA DURA DEL PISO SOBRE LO QUE SE REPORTA.
+    #
+    # Durante la busqueda la reparacion corre con dos pasadas por hijo, porque
+    # se aplica a 5 000 individuos por corrida. En un corral saturado eso deja
+    # violaciones residuales en la poblacion: medido, 1 312 en los 50 hijos de
+    # la generacion 0. Que la colocacion ganadora saliera limpia en las pruebas
+    # de punta a punta era consecuencia de que la poblacion converge y el
+    # elitismo conserva a los buenos, NO una garantia: un individuo con un nido
+    # encimado podia en principio ganar.
+    #
+    # Aqui si se garantiza, y sale barato porque son cinco individuos: el
+    # mejor, el Top 3 y -mas abajo- la referencia secuencial. Se reparan hasta
+    # que no quede ninguna violacion, y se reevaluan, porque mover un nido
+    # cambia su aptitud y seria deshonesto reportar la del individuo anterior.
+    reparaciones_finales = {}
+    for etiqueta, ind in [('mejor', mejor)] + [
+            ('top%d' % (k + 1), i) for k, i in enumerate(top3)]:
+        g_ind = gestores.para(getattr(ind, 'idx_orden', 0))
+        n_pasadas = reparar_hasta_converger(ind, BASE, g_ind, nidos_ocupados)
+        if n_pasadas != 0:
+            reparaciones_finales[etiqueta] = n_pasadas
+            calcular_fitness(ind, gestores, BASE, corral, nidos_ocupados,
+                             mes=f_siembra.month)
+
     # Ventana del PTS por especie: cada una tiene su propio tercio medio
     # (golfina dias 17-33, prieta 20-40, laud 22-43).
     pts_por_especie = {e: calcular_pts_window(f_siembra, e, BASE) for e in BASE}
@@ -708,6 +733,11 @@ def ejecutar():
     # nidos previos: la unica diferencia es donde quedo cada nido.
     import termico
     referencia = individuo_secuencial(nidos_entrada, gestor, BASE, nidos_ocupados)
+    # La referencia tambien tiene que ser ejecutable: si el llenado secuencial
+    # encimara nidos, compararlo contra el AG seria compararlo contra algo que
+    # nadie puede sembrar. Se repara con el mismo criterio y se evalua despues.
+    reparaciones_finales['secuencial'] = reparar_hasta_converger(
+        referencia, BASE, gestor, nidos_ocupados)
     calcular_fitness(referencia, gestor, BASE, corral, nidos_ocupados,
                      mes=f_siembra.month)
 
@@ -817,6 +847,11 @@ def ejecutar():
         # AG no pudo elegirlo. La interfaz debe decirlo, para que nadie crea
         # que el algoritmo propone mover especies de franja entre jornadas.
         'cupo':          _serializar_cupo(cupo, gestores),
+        # Cuantas pasadas de reparacion necesito cada colocacion reportada para
+        # cumplir el piso fisico. Cero significa que salio limpia del AG; -1,
+        # que no se pudo garantizar y el resultado no debe presentarse sin
+        # explicarlo.
+        'reparacion_final': reparaciones_finales,
         'orden_fijo':    bool(orden_fijo),
         'orden_motivo':  ('Heredado de los %d nidos ya enterrados: cambiar de '
                           'franja obligaria a desenterrarlos.' % len(nidos_ocupados)

@@ -384,6 +384,95 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
     return ind
 
 
+# Pasadas de reparacion que se aplican a cada hijo durante la busqueda.
+#
+# MEDIDO, con el cupo ya garantizando que la colocacion es factible (la
+# medicion anterior se hizo cuando admitir_nidos repartia por area y entregaba
+# al AG nidos sin donde ir: entonces la reparacion no podia converger por mas
+# pasadas que se le dieran, y ese numero salia contaminado).
+#
+# Violaciones del piso que quedan en los 50 hijos de la generacion 0, que es el
+# peor caso -los padres todavia vienen de la inicializacion-:
+#
+#   pasadas   100 nidos en 30x40   270 en 30x8    326 en 10x10
+#   sin rep.  123                  6046           13093
+#   1          12                  3322            6121
+#   2           0                  1312            1314
+#   3           0                   487             378
+#   4           0                   206             159
+#
+#   costo por generacion:  1 -> 18/83/96 ms   2 -> 21/168/205 ms
+#                          3 -> 22/193/235 ms  4 -> 22/263/327 ms
+#
+# Queda en 2. En la jornada real -corral holgado- dos pasadas dejan CERO
+# violaciones, que es la garantia que hace falta, y la tercera y la cuarta no
+# compran nada. En corral saturado ninguna cantidad razonable de pasadas llega
+# a cero de golpe, y pagar 263 ms por generacion para bajar de 1312 a 206 no
+# vale la pena: lo que de verdad importa ahi es que el RESULTADO REPORTADO
+# cumpla, y de eso se encarga reparar_hasta_converger().
+_PASADAS_REPARACION = 2
+
+
+def reparar_hasta_converger(ind, base, gestor, nidos_previos=None,
+                            limite=60):
+    """Repara hasta que NO quede ninguna violacion del piso. Para el resultado.
+
+    POR QUE HACE FALTA APARTE. Durante la busqueda la reparacion se aplica con
+    un numero acotado de pasadas, porque corre sobre 5 000 individuos por
+    corrida y el costo se multiplica. En un corral saturado eso deja
+    violaciones residuales en la poblacion: medido, 206 en los 50 hijos de la
+    generacion 0 incluso con cuatro pasadas.
+
+    Que la colocacion GANADORA saliera limpia en las pruebas de punta a punta
+    -cero violaciones en los cuatro escenarios- era consecuencia de que la
+    poblacion converge y el elitismo conserva a los buenos, no una garantia.
+    Un individuo con un nido encimado podia, en principio, ganar.
+
+    Aqui si se garantiza, y sale barato porque se aplica a un punado de
+    individuos: el mejor, el Top 3 y la referencia secuencial. Se itera hasta
+    que la comprobacion no encuentre nada; el limite es una red de seguridad
+    contra un corral donde ninguna colocacion sea posible, no el mecanismo.
+
+    Devuelve cuantas pasadas hicieron falta, o -1 si agoto el limite sin
+    converger, para que quien reporte pueda decirlo en lugar de suponerlo.
+    """
+    for k in range(1, int(limite) + 1):
+        antes = _cuenta_violaciones(ind, base, gestor, nidos_previos)
+        if antes == 0:
+            return k - 1
+        reparar_piso(ind, base, gestor, nidos_previos, pasadas=1)
+    return 0 if _cuenta_violaciones(ind, base, gestor, nidos_previos) == 0 else -1
+
+
+def _cuenta_violaciones(ind, base, gestor, nidos_previos=None):
+    """Cuantos nidos del individuo estan por debajo del piso, contra todo vecino."""
+    genes = ind.genes
+    n = len(genes)
+    if n < 1 or not hasattr(gestor, 'piso'):
+        return 0
+    radios = {e: float(base.get(e, {}).get('radio_camara_cm', 0.0)) for e in base}
+    if not any(radios.values()):
+        return 0
+
+    corral_g = getattr(gestor, 'corral', {}) or {}
+    pared = float(corral_g.get('pared_arena_cm', 20.0))
+    cerco = float(corral_g.get('cerco_diametro_cm', 0.0))
+
+    px, py, pr = _previos_arreglos(nidos_previos, radios)
+    xs = np.array([g.x for g in genes], dtype=float)
+    ys = np.array([g.y for g in genes], dtype=float)
+    rs = np.array([radios.get(g.especie, 0.0) for g in genes], dtype=float)
+    tx = np.concatenate([xs, px]); ty = np.concatenate([ys, py])
+    tr = np.concatenate([rs, pr])
+
+    pisos = rs[:, None] + tr[None, :] + pared
+    if cerco > 0:
+        pisos = np.maximum(pisos, cerco)
+    d2 = (xs[:, None] - tx[None, :]) ** 2 + (ys[:, None] - ty[None, :]) ** 2
+    d2[np.arange(n), np.arange(n)] = np.inf
+    return int((d2 < (pisos - 0.05) ** 2).any(axis=1).sum())
+
+
 def _previos_arreglos(nidos_previos, radios):
     """Nidos enterrados como (xs, ys, radios), desde cualquiera de los dos
     formatos en que circulan por el sistema."""
@@ -410,7 +499,7 @@ def _previos_arreglos(nidos_previos, radios):
                       for q in nidos_previos], dtype=float))
 
 
-def reparar_piso(ind, base, gestor, nidos_previos=None, pasadas=4):
+def reparar_piso(ind, base, gestor, nidos_previos=None, pasadas=_PASADAS_REPARACION):
     """Separa los nidos que quedaron por debajo del piso fisico. Restriccion.
 
     POR QUE HACE FALTA, Y POR QUE NO SE VEIA
