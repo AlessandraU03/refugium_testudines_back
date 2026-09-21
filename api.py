@@ -75,7 +75,7 @@ def obtener_sector_fisico(x_cm, y_cm, corral=None):
 
 def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
                              densidad_m2=0.0, sombra=None, especie='golfina',
-                             x_cm=None, y_cm=None):
+                             x_cm=None, y_cm=None, riego=None):
     """Proporcion sexual de un nido. Delega en termico.py.
 
     Antes esta funcion tenia su propia copia del modelo: su tabla de
@@ -106,11 +106,21 @@ def calcular_modelo_girondot(f_siembra_dt, prof_cm, n_huevos=None,
         else:
             sombra = termico.CORRAL_CON_MALLA_SOMBRA
 
+    # Riego: la segunda intervencion del corral. Sin esto, esta funcion
+    # devolvia la proporcion sexual de un corral SIN regar mientras el bloque
+    # de rendimiento la calculaba CON riego, y la misma jornada aparecia con
+    # 96.9 % de hembras en el diagrama y 68.3 % en el resumen.
+    if riego is None:
+        riego = bool(SITIO and SITIO.get('riego_activo')
+                     and (x_cm is None or y_cm is None
+                          or termico.en_sombra(float(x_cm), float(y_cm),
+                                               [SITIO['riego']])))
+
     pe = PARAMS_ESPECIE.get(especie, {})
     huevos = termico.huevos_del_mes(mes) if n_huevos in (None, 0) else n_huevos
     t_pts = termico.temperatura_pts(termico.temperatura_base(mes),
                                     n_huevos=huevos, sombra=sombra,
-                                    prof_cm=prof_cm)
+                                    riego=riego, prof_cm=prof_cm)
     sexo = termico.proporcion_sexual(t_pts, pe.get('pivote'), pe.get('s'))
     pct_hembra = sexo['pct_hembras']
     pct_macho = sexo['pct_machos']

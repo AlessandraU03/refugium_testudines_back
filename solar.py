@@ -282,5 +282,16 @@ def cargar_sitio(carpeta_csv=None):
             'xmin': float(v['malla_xmin_cm']), 'ymin': float(v['malla_ymin_cm']),
             'xmax': float(v['malla_xmax_cm']), 'ymax': float(v['malla_ymax_cm']),
         },
+        # Region regada. El riego es la segunda intervencion documentada y la
+        # unica que, combinada con la sombra, alcanza los 4 C de enfriamiento
+        # que midieron Hill et al. (2015). A diferencia de la malla no depende
+        # de la trayectoria del sol: se aplica o no se aplica sobre la arena.
+        'riego_activo': str(v.get('riego_activo', '0')).strip() in ('1', 'si', 'true'),
+        'riego': {
+            'xmin': float(v.get('riego_xmin_cm', 0)),
+            'ymin': float(v.get('riego_ymin_cm', 0)),
+            'xmax': float(v.get('riego_xmax_cm', 0)),
+            'ymax': float(v.get('riego_ymax_cm', 0)),
+        },
         'supuestos': supuestos,
     }

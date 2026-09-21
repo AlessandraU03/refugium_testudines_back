@@ -715,6 +715,13 @@ def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
         else:
             sombra = en_sombra(x, y, rectangulos_sombra)
 
+        # Riego: segunda intervencion documentada. No depende del sol, solo de
+        # si ese punto de la arena se riega. Sombra y riego juntos NO suman sus
+        # efectos (2.2 + 2.3 = 4.5 C, pero Hill et al. midieron 4.0 al
+        # combinarlos); esa interaccion la resuelve _delta_mitigacion.
+        riego = bool(sitio and sitio.get('riego_activo')
+                     and en_sombra(x, y, [sitio['riego']]))
+
         # Profundidad y pivote propias de la especie. Antes no se pasaba la
         # profundidad del nido -se evaluaba todo como si estuviera a 45 cm- y
         # la pivote era siempre la de golfina.
@@ -723,7 +730,7 @@ def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
 
         p = predecir_nido(mes=mes or 9, n_huevos=huevos,
                           tasa_base_especie=tasa, densidad_m2=d,
-                          sombra=sombra, prof_cm=prof,
+                          sombra=sombra, riego=riego, prof_cm=prof,
                           pivote=pe.get('pivote'), s_girondot=pe.get('s'),
                           delta_por_densidad=delta_por_densidad)
         predicciones.append(p)

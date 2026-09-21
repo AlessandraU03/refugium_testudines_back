@@ -9,4 +9,9 @@ malla_xmax_cm,3000,no,"DATO DE CAMPO: fotografia del corral aportada por la usua
 malla_ymax_cm,800,no,"DATO DE CAMPO: la cubierta abarca todo el ancho del corral"
 malla_altura_cm,250,si,"SUPUESTO. Altura del toldo sobre la arena; en la fotografia los postes superan la estatura de una persona. Importa MAS con cobertura total: como el techo cubre todo, el unico sol directo entra por los LADOS abiertos cuando el sol esta bajo, y cuanto mas alto el toldo, mas adentro penetra"
 malla_atenuacion,0.80,si,"SUPUESTO. Fraccion de la radiacion directa que intercepta la malla. Hill et al. (2015) NO reportan el porcentaje de sus parcelas sombreadas, solo sombreada contra expuesta, asi que no existe un mapeo documentado de porcentaje a grados. Se asume malla de sombreo fuerte (80 por ciento) y la atenuacion escala linealmente entre 0 y el anclaje medido por Hill. PENDIENTE: leer la etiqueta de la malla instalada"
+riego_activo,1,no,"DATO DE CAMPO: la usuaria confirma que el corral cuenta con riego. 1 = disponible, 0 = no"
+riego_xmin_cm,0,si,"SUPUESTO. Region regada, en coordenadas locales del corral. Se asume el corral completo; si el riego solo alcanza una parte, corregir estos limites"
+riego_ymin_cm,0,si,SUPUESTO
+riego_xmax_cm,3000,si,"SUPUESTO. Se asume que el riego cubre todo el largo"
+riego_ymax_cm,800,si,"SUPUESTO. Se asume que el riego cubre todo el ancho"
 paso_minutos,10,no,"Resolucion temporal con que se integra la trayectoria solar a lo largo del dia"
