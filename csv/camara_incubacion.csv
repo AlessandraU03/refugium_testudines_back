@@ -1,0 +1,30 @@
+# Dimensiones fisicas de la camara de incubacion, en centimetros.
+#
+# PARA QUE SIRVE: fija el PISO de separacion entre nidos. La separacion de la
+# NOM-162 (100/120/150 cm) es el objetivo; este archivo dice cuando una
+# colocacion deja de ser posible. Dos camaras no pueden estar mas cerca que la
+# suma de sus radios: por debajo de eso las excavaciones se intersecan, y eso
+# no es incumplir una norma, es pedir que se entierren dos nidadas en el mismo
+# hoyo. Antes de tener este archivo el sistema apretaba la rejilla sin limite y
+# llego a proponer 33.2 cm entre nidos de golfina, menos que el ancho de una
+# sola camara.
+#
+# SE USA EL DIAMETRO DEL FONDO, no el del cuello. La camara tiene forma de
+# matraz -cuello angosto, fondo ancho- y el fondo es su parte mas ancha.
+#
+# SE IGNORA A PROPOSITO que las especies incuban a profundidades distintas
+# (golfina 40-50 cm, prieta 45-60, laud 75-85). Dos fondos separados 35 cm en
+# vertical podrian no tocarse aunque se solapen en planta, pero para llegar al
+# fondo del laud hay que EXCAVAR atravesando el nivel de la golfina. Lo que
+# ocupa el terreno es la excavacion completa, no solo la camara terminada.
+#
+# MARGEN POR NIDADA GRANDE: la tabla recomienda ensanchar el fondo de 3 a 5 cm
+# cuando la nidada pasa de 110 huevos. NO se aplica aqui: la fecundidad medida
+# en Puerto Arista va de 77 a 93 huevos por nido (csv/fecundidad_mensual.csv,
+# Corzo-Dominguez y Romero-Berny 2025), asi que ninguna nidada del sitio cae en
+# ese caso. Si se usara el programa en una playa con nidadas mayores, hay que
+# sumar esos 5 cm al diametro maximo.
+especie,diametro_fondo_min_cm,diametro_fondo_max_cm,diametro_cuello_cm,supuesto,fuente
+golfina,20,25,20,no,"Tabla de dimensiones de la camara de incubacion por especie aportada por la usuaria (Lepidochelys olivacea): diametro recomendado del fondo 20-25 cm. El diametro del CUELLO (15-20 cm en superficie) es comun a las tres especies segun la misma tabla; se toma el extremo superior, 20 cm"
+prieta,25,35,20,no,"Misma tabla, fila Chelonia mydas (tortuga verde/blanca): 25-35 cm. La prieta del Pacifico oriental es Chelonia mydas agassizii, la misma especie"
+laud,40,50,20,no,"Misma tabla, fila Dermochelys coriacea: 40-50 cm. Es la camara mas ancha de las tres y por tanto la que fija el piso de separacion mas alto"

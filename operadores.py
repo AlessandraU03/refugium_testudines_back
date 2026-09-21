@@ -217,6 +217,26 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         menos = viols_cand.min()
         empatados = np.flatnonzero(viols_cand == menos)
         cercania = dist_sq_cand[empatados].min(axis=1)
+
+        # RESTRICCION DURA: el piso fisico. Por debajo de esa distancia las dos
+        # camaras se intersecan, asi que el candidato no es una colocacion peor
+        # sino una colocacion imposible, y no puede entrar a la poblacion
+        # aunque reduzca la cuenta de violaciones.
+        #
+        # Va aqui, en el operador, y no en la aptitud a proposito: como
+        # penalizacion el AG la negociaria -cederia cumplimiento a cambio de
+        # crias-, que es el error que ya tuvo el termino de separacion. Como
+        # restriccion, ningun individuo puede violarla y no hay nada que
+        # negociar.
+        piso = gestor.piso(gen.especie) if hasattr(gestor, 'piso') else 0.0
+        if piso > 0:
+            piso_sq = (piso - 0.05) ** 2
+            admisibles = empatados[cercania >= piso_sq]
+            if len(admisibles) == 0:
+                continue
+            cercania = dist_sq_cand[admisibles].min(axis=1)
+            empatados = admisibles
+
         best_idx = int(empatados[int(np.argmax(cercania))])
         mejor_viols = viols_cand[best_idx]
 
@@ -336,6 +356,12 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         paso = gestor.separacion_efectiva.get(gen.zona_correcta())
         if paso:
             sep_req = min(sep_req, float(paso))
+        # El paso de la rejilla ya viene topado por el piso, pero esta
+        # mutacion coloca LIBREMENTE, no sobre la rejilla, asi que se exige el
+        # piso de forma explicita: si algun dia el paso se calculara de otro
+        # modo, la colocacion libre seguiria siendo ejecutable.
+        piso = gestor.piso(gen.especie) if hasattr(gestor, 'piso') else 0.0
+        sep_req = max(sep_req, piso)
         sep_sq = (sep_req - 0.05) ** 2
 
         cx = round(random.uniform(lim['xmin'], lim['xmax']), 1)
@@ -350,7 +376,174 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
         todos_y[idx] = cy
         gen.x, gen.y = cx, cy
 
+    # Ultimo paso, sobre TODO hijo: el piso fisico es una restriccion, no un
+    # objetivo, asi que ningun individuo sale de aqui violandolo. Corrige lo
+    # que la cruza pudo encimar al mezclar dos padres de la misma rejilla.
+    reparar_piso(ind, base, gestor, nidos_previos)
+
     return ind
+
+
+def _previos_arreglos(nidos_previos, radios):
+    """Nidos enterrados como (xs, ys, radios), desde cualquiera de los dos
+    formatos en que circulan por el sistema."""
+    vacio = (np.empty(0), np.empty(0), np.empty(0))
+    if not nidos_previos:
+        return vacio
+
+    if isinstance(nidos_previos, dict):
+        xs, ys, rs = [], [], []
+        for esp, datos in nidos_previos.items():
+            if esp == '__cache__' or not datos:
+                continue
+            r = radios.get(esp, 0.0)
+            xs.append(np.asarray(datos[0], dtype=float))
+            ys.append(np.asarray(datos[1], dtype=float))
+            rs.append(np.full(len(datos[0]), r, dtype=float))
+        if not xs:
+            return vacio
+        return (np.concatenate(xs), np.concatenate(ys), np.concatenate(rs))
+
+    return (np.array([float(q['x']) for q in nidos_previos], dtype=float),
+            np.array([float(q['y']) for q in nidos_previos], dtype=float),
+            np.array([radios.get(q.get('especie', 'golfina'), 0.0)
+                      for q in nidos_previos], dtype=float))
+
+
+def reparar_piso(ind, base, gestor, nidos_previos=None, pasadas=4):
+    """Separa los nidos que quedaron por debajo del piso fisico. Restriccion.
+
+    POR QUE HACE FALTA, Y POR QUE NO SE VEIA
+    ----------------------------------------
+    La cruza intercambia genes entre dos padres posicion por posicion. Los dos
+    padres nacieron de la MISMA rejilla -las mismas coordenadas en distinto
+    orden-, asi que un hijo puede recibir el gen k de un padre y el gen k+1 del
+    otro apuntando a la misma casilla. Medido con 280 nidos en 10 x 8 m: 20
+    nidos del mismo hijo con coordenadas IDENTICAS, o sea separacion 0 cm.
+
+    El defecto no lo introdujo el piso de separacion: estaba antes y nadie lo
+    veia, porque ninguna comprobacion buscaba coordenadas repetidas y la
+    aptitud solo mide densidad local, que con un nido justo encima de otro
+    apenas se mueve. El piso lo dejo al descubierto al hacer medible lo que es
+    fisicamente imposible.
+
+    COMO SE REPARA, Y POR QUE ASI
+    -----------------------------
+    Reubicando cada infractor en una CASILLA LIBRE DE LA REJILLA, no buscando
+    un hueco al azar. Dos razones:
+
+    1. Correccion: la rejilla se construye con paso mayor o igual al piso, asi
+       que cualquier casilla libre respeta el piso frente a las demas casillas
+       por construccion. No hay que comprobarlo.
+
+    2. Costo: la primera version muestreaba posiciones al azar y verificaba
+       cada una contra todos los nidos. Medido, 51 segundos POR GENERACION con
+       280 nidos -mas de una hora de corrida-, porque en un corral saturado
+       casi todos los genes violan y casi ningun punto al azar sirve. Asignar
+       casillas libres es una busqueda en un conjunto: O(1) por gen.
+
+    Cada pasada cuesta UNA operacion matricial (n x n+previos) para saber
+    quien viola. En una jornada holgada nadie viola, la primera pasada corta y
+    el costo total es una matriz de 100 x 100 por hijo.
+
+    El muestreo al azar se conserva solo como ultimo recurso, para el gen que
+    no encuentre casilla: ahi si hace falta un punto cualquiera antes que dejar
+    un nido encima de otro.
+    """
+    genes = ind.genes
+    n = len(genes)
+    if n < 2 or not hasattr(gestor, 'piso'):
+        return ind
+
+    from cromosoma import posicion_mas_libre
+
+    radios = {e: float(base.get(e, {}).get('radio_camara_cm', 0.0)) for e in base}
+    if not any(radios.values()):
+        return ind      # sin datos de camara no hay piso que exigir
+
+    corral_g = getattr(gestor, 'corral', {}) or {}
+    pared = float(corral_g.get('pared_arena_cm', 20.0))
+    cerco = float(corral_g.get('cerco_diametro_cm', 0.0))
+
+    px, py, pr = _previos_arreglos(nidos_previos, radios)
+    rs = np.array([radios.get(g.especie, 0.0) for g in genes], dtype=float)
+    _slots_zona = {}
+
+    for _pasada in range(max(1, int(pasadas))):
+        xs = np.array([g.x for g in genes], dtype=float)
+        ys = np.array([g.y for g in genes], dtype=float)
+        todos_x = np.concatenate([xs, px])
+        todos_y = np.concatenate([ys, py])
+        todos_r = np.concatenate([rs, pr])
+
+        # El piso es SEPARABLE -radio(a) + radio(b) + pared-, asi que la matriz
+        # de pisos sale de una suma externa de radios, sin recorrer pares.
+        pisos = rs[:, None] + todos_r[None, :] + pared
+        if cerco > 0:
+            pisos = np.maximum(pisos, cerco)
+
+        d2 = ((xs[:, None] - todos_x[None, :]) ** 2 +
+              (ys[:, None] - todos_y[None, :]) ** 2)
+        d2[np.arange(n), np.arange(n)] = np.inf     # cada nido contra si mismo
+
+        viola = (d2 < (pisos - 0.05) ** 2).any(axis=1)
+        idx_viola = np.flatnonzero(viola)
+        if len(idx_viola) == 0:
+            return ind
+
+        # Las casillas que YA usan los genes que no violan quedan tomadas.
+        tomadas = {(round(genes[i].x, 1), round(genes[i].y, 1))
+                   for i in range(n) if not viola[i]}
+
+        por_zona = {}
+        for i in idx_viola:
+            por_zona.setdefault(genes[int(i)].zona_correcta(), []).append(int(i))
+
+        for zona, indices in por_zona.items():
+            lim = gestor.limites_zona(zona)
+            if not lim:
+                continue
+            especie = lim['especie']
+
+            if zona not in _slots_zona:
+                _slots_zona[zona] = list(gestor.slots_suficientes(
+                    zona, base[especie]['sep_min'],
+                    _previos_dicts(nidos_previos),
+                    gestor.conteo.get(especie, len(indices))))
+            libres = [s for s in _slots_zona[zona]
+                      if (round(s[0], 1), round(s[1], 1)) not in tomadas]
+
+            for k, i in enumerate(indices):
+                if k < len(libres):
+                    destino = libres[k]
+                else:
+                    # Zona sin casilla libre. Ultimo recurso: el hueco mas
+                    # holgado que exista, para no dejar el nido encimado.
+                    ocupadas = [(float(a), float(b))
+                                for a, b in zip(todos_x, todos_y)]
+                    destino = posicion_mas_libre(lim, ocupadas)
+                    if destino is None:
+                        continue
+                genes[i].x = round(float(destino[0]), 1)
+                genes[i].y = round(float(destino[1]), 1)
+                tomadas.add((genes[i].x, genes[i].y))
+
+    return ind
+
+
+def _previos_dicts(nidos_previos):
+    """Nidos enterrados como lista de diccionarios, desde cualquier formato."""
+    if not nidos_previos:
+        return []
+    if isinstance(nidos_previos, dict):
+        salida = []
+        for esp, datos in nidos_previos.items():
+            if esp == '__cache__' or not datos:
+                continue
+            for x, y in zip(datos[0], datos[1]):
+                salida.append({'x': float(x), 'y': float(y), 'especie': esp})
+        return salida
+    return list(nidos_previos)
 
 
 def poda_elitismo(poblacion, descendencia, tam_pob, n_elite=2):

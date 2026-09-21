@@ -7,7 +7,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 
 from cromosoma import (cargar_base_conocimiento, GestorZonas, GestoresZonas,
-                       RegistroJornadas, orden_establecido)
+                       RegistroJornadas, orden_establecido, admitir_nidos,
+                       piso_separacion)
 from ag import ejecutar_ag
 from inicializacion import individuo_secuencial
 from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
@@ -266,6 +267,36 @@ def base_conocimiento():
     })
 
 
+NOMBRE_BANDA = {
+    'norma':    'Conforme a la NOM-162',
+    'apretado': 'Cabe, pero por debajo de la norma',
+    'excedido': 'Excede la capacidad fisica del corral',
+}
+
+CATEGORIA_UICN = {
+    'CR': 'En Peligro Critico',
+    'EN': 'En Peligro',
+    'VU': 'Vulnerable',
+}
+
+
+def _serializar_cupo(cupo, gestores=None):
+    """Prepara el resultado del cupo para la interfaz.
+
+    Incluye la BANDA, que es lo que hay que leer primero: si la jornada cabe
+    conforme a la norma, si cabe apretando, o si no cabe. Las tres son
+    respuestas legitimas; la tercera es la que antes el sistema no sabia dar y
+    resolvia encimando nidos.
+    """
+    d = dict(cupo)
+    d['banda_nombre'] = NOMBRE_BANDA.get(cupo['banda'], cupo['banda'])
+    d['categorias_nombre'] = {e: CATEGORIA_UICN.get(c, c)
+                              for e, c in cupo.get('categorias', {}).items()}
+    if gestores is not None and hasattr(gestores, 'zonas_sin_lugar'):
+        d['zonas_sin_lugar'] = gestores.zonas_sin_lugar
+    return d
+
+
 @app.route('/api/ejecutar', methods=['POST'])
 def ejecutar():
     data = request.get_json()
@@ -311,10 +342,6 @@ def ejecutar():
     # Las tres especies conviven en el corral, cada una en su zona y con sus
     # propios parametros: profundidad y separacion de la NOM-162, dias de
     # incubacion, ventana del PTS y pivote de determinacion sexual.
-    nidos_entrada = ([(i, 'golfina') for i in range(n_g)] +
-                     [(n_g + i, 'prieta') for i in range(n_p)] +
-                     [(n_g + n_p + i, 'laud') for i in range(n_l)])
-
     try:
         nidos_activos = REGISTRO.obtener_nidos_activos(fecha, BASE)
     except Exception:
@@ -322,6 +349,47 @@ def ejecutar():
 
     nidos_ocupados = [{'x': n['x'], 'y': n['y'], 'especie': n['especie']}
                       for n in nidos_activos]
+
+    # CUPO DEL CORRAL. Se resuelve antes de armar la entrada del AG.
+    #
+    # Con el piso de separacion puesto, el corral tiene un limite real y puede
+    # llegar mas nido del que cabe. Antes eso no se detectaba: la rejilla se
+    # apretaba sin fondo y los sobrantes se sembraban repitiendo la ultima
+    # casilla, o sea varias nidadas en las mismas coordenadas. Ahora la jornada
+    # cae en una de tres bandas -conforme a la norma, apretada por debajo de
+    # ella, o excedida- y en la tercera se decide que nidos entran por
+    # prioridad de riesgo de extincion, con el laud del Pacifico oriental
+    # primero.
+    #
+    # Al AG solo se le entregan los nidos ADMITIDOS. Pedirle que coloque lo que
+    # no cabe es pedirle que devuelva una colocacion imposible.
+    cupo = admitir_nidos({'golfina': n_g, 'prieta': n_p, 'laud': n_l},
+                         BASE, corral, nidos_ocupados)
+    n_g = cupo['admitidos'].get('golfina', 0)
+    n_p = cupo['admitidos'].get('prieta', 0)
+    n_l = cupo['admitidos'].get('laud', 0)
+
+    if n_g + n_p + n_l == 0:
+        return jsonify({
+            'error': 'El corral no admite ningun nido mas: ya esta lleno al '
+                     'limite fisico de separacion (%s). Los %d nidos de esta '
+                     'jornada necesitan otro destino.'
+                     % (', '.join('%s %.0f cm' % (e, v)
+                                  for e, v in sorted(cupo['piso'].items())),
+                        cupo['total_demanda']),
+            'cupo': cupo,
+        }), 409
+
+    # Los seis repartos posibles de las franjas. El AG elige uno: con la malla
+    # sombra cubriendo parte del corral, ese reparto decide a que especie le
+    # toca el fresco. Medido en septiembre, prieta pasa de 0.11 a 0.97 de
+    # sombra segun el reparto.
+    # Las tres especies conviven en el corral, cada una en su zona y con sus
+    # propios parametros: profundidad y separacion de la NOM-162, dias de
+    # incubacion, ventana del PTS y pivote de determinacion sexual.
+    nidos_entrada = ([(i, 'golfina') for i in range(n_g)] +
+                     [(n_g + i, 'prieta') for i in range(n_p)] +
+                     [(n_g + n_p + i, 'laud') for i in range(n_l)])
 
     # El reparto de franjas se decide UNA VEZ, con el corral vacio. Despues
     # queda fijo: los nidos ya enterrados no se pueden cambiar de franja, y
@@ -700,6 +768,7 @@ def ejecutar():
         # Si el corral ya tenia nidos, el reparto venia impuesto por ellos y el
         # AG no pudo elegirlo. La interfaz debe decirlo, para que nadie crea
         # que el algoritmo propone mover especies de franja entre jornadas.
+        'cupo':          _serializar_cupo(cupo, gestores),
         'orden_fijo':    bool(orden_fijo),
         'orden_motivo':  ('Heredado de los %d nidos ya enterrados: cambiar de '
                           'franja obligaria a desenterrarlos.' % len(nidos_ocupados)

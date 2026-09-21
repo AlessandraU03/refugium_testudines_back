@@ -1,0 +1,28 @@
+# Riesgo de extincion por especie. Fija la PRIORIDAD cuando llegan mas nidos
+# de los que caben fisicamente en el corral.
+#
+# PARA QUE SIRVE: con el piso de separacion puesto (csv/camara_incubacion.csv)
+# el corral tiene un limite real, y al alcanzarlo hay que decidir que nidos
+# entran. Si se decide maximizando crias, el AG excluye sistematicamente al
+# LAUD: pone menos huevos por nidada y necesita mas separacion, asi que rinde
+# menos crias por metro cuadrado. El resultado seria un programa que deja fuera
+# a la especie mas amenazada de las tres, justo lo contrario del objetivo del
+# proyecto. La prioridad de conservacion corrige eso.
+#
+# POR QUE LA UICN Y NO LA NOM-059: la NOM-059-SEMARNAT clasifica a las tres
+# especies en la misma categoria, "En peligro de extincion (P)", asi que no
+# permite ordenarlas. La Lista Roja de la UICN si las distingue, y ademas
+# evalua subpoblaciones regionales, que es lo que importa aqui: el laud del
+# Pacifico oriental -la poblacion que anida en Chiapas- esta en una situacion
+# mucho peor que la especie a nivel mundial.
+#
+# PENDIENTE: verificar en iucnredlist.org el anio de evaluacion de cada
+# categoria. Las categorias estan verificadas; los anios no se anotan para no
+# citar una fecha equivocada.
+#
+# prioridad 1 = entra primero. La especie de prioridad mas alta es la que
+# absorbe el faltante cuando el corral se llena.
+especie,nombre_cientifico,categoria_uicn,ambito_evaluado,prioridad,fuente
+laud,Dermochelys coriacea,CR,"Subpoblacion del Pacifico oriental",1,"Lista Roja de la UICN: En Peligro Critico (CR) para la subpoblacion del Pacifico oriental, la que anida en la costa de Chiapas. La especie a nivel mundial esta evaluada como Vulnerable, pero esta subpoblacion es la mas amenazada de las tres que usan el corral"
+prieta,Chelonia mydas,EN,Mundial,2,"Lista Roja de la UICN: En Peligro (EN) a nivel mundial. La prieta del Pacifico oriental es Chelonia mydas agassizii"
+golfina,Lepidochelys olivacea,VU,Mundial,3,"Lista Roja de la UICN: Vulnerable (VU) a nivel mundial. Es la menos amenazada de las tres y la que aporta casi todos los nidos del Santuario (Corzo-Dominguez y Romero-Berny 2025), asi que es la que absorbe el faltante cuando el corral se llena"

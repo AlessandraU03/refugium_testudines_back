@@ -12,10 +12,17 @@ def cargar_csv(ruta):
     valida aqui, en el unico punto de carga, para que el error salte al leer el
     archivo y no mas adelante como un numero equivocado.
     """
+    # Las lineas que empiezan por '#' son comentarios y no llegan al lector.
+    # Hay parametros cuya justificacion no cabe en la columna `fuente` -por que
+    # se usa el diametro del fondo y no el del cuello, por que no se aplica un
+    # margen que la fuente si recomienda- y esa explicacion tiene que vivir
+    # junto al dato, no en un comentario de Python que nadie abre al revisar la
+    # base de conocimiento.
     with open(ruta, newline='', encoding='utf-8') as f:
-        lector = csv.DictReader(f)
-        filas = list(lector)
-        columnas = lector.fieldnames
+        utiles = [ln for ln in f if not ln.lstrip().startswith('#')]
+    lector = csv.DictReader(utiles)
+    filas = list(lector)
+    columnas = lector.fieldnames
 
     if not columnas:
         raise ValueError('%s: el archivo esta vacio o no tiene encabezado.' % os.path.basename(ruta))
@@ -46,6 +53,22 @@ def cargar_base_conocimiento(carpeta_csv):
     eclosion    = cargar_csv(os.path.join(carpeta_csv, 'tasa_eclosion.csv'))
     incubacion  = cargar_csv(os.path.join(carpeta_csv, 'dias_incubacion.csv'))
     corral_rows = cargar_csv(os.path.join(carpeta_csv, 'corral_incubacion.csv'))
+
+    # Geometria fisica de la camara de incubacion. De aqui sale el PISO de
+    # separacion, que no es lo mismo que la separacion de la norma: la norma
+    # dice que se DEBE separar 100 cm, y esto dice por debajo de que distancia
+    # la colocacion deja de ser posible.
+    camara_rows = []
+    ruta_camara = os.path.join(carpeta_csv, 'camara_incubacion.csv')
+    if os.path.exists(ruta_camara):
+        camara_rows = cargar_csv(ruta_camara)
+
+    # Riesgo de extincion: decide que especie entra primero cuando el corral se
+    # llena y no caben todos los nidos.
+    riesgo_rows = []
+    ruta_riesgo = os.path.join(carpeta_csv, 'riesgo_extincion.csv')
+    if os.path.exists(ruta_riesgo):
+        riesgo_rows = cargar_csv(ruta_riesgo)
 
     pts_file = os.path.join(carpeta_csv, 'pts_termosensible.csv')
     pts_data = cargar_csv(pts_file) if os.path.exists(pts_file) else []
@@ -89,7 +112,104 @@ def cargar_base_conocimiento(carpeta_csv):
             base[e]['pivote_temp']     = float(f['pivote_temp_c'])
             base[e]['s_parameter']     = float(f['s_parameter'])
 
+    # Radio de la camara: se toma el diametro MAXIMO recomendado del fondo.
+    # Usar el minimo daria un piso mas permisivo a costa de que el hoyo real no
+    # quepa, y el piso existe justamente para no proponer lo que no cabe.
+    for f in camara_rows:
+        e = f['especie']
+        if e in base:
+            base[e]['diametro_camara_cm'] = float(f['diametro_fondo_max_cm'])
+            base[e]['radio_camara_cm']    = float(f['diametro_fondo_max_cm']) / 2.0
+            base[e]['diametro_cuello_cm'] = float(f['diametro_cuello_cm'])
+
+    for f in riesgo_rows:
+        e = f['especie']
+        if e in base:
+            base[e]['categoria_uicn'] = f['categoria_uicn']
+            base[e]['ambito_uicn']    = f.get('ambito_evaluado', '')
+            base[e]['prioridad']      = int(f['prioridad'])
+
+    # Sin archivo de riesgo, todas las especies quedan con la misma prioridad y
+    # el cupo se reparte en proporcion a lo que llego, sin favorecer a ninguna.
+    for e in base:
+        base[e].setdefault('prioridad', 99)
+
+    # Parametros de la instalacion que afectan el piso, leidos de sitio.csv:
+    # el espesor de pared de arena y el cerco de conteo de crias.
+    corral.update(_parametros_piso(carpeta_csv))
+
     return base, corral
+
+
+def _parametros_piso(carpeta_csv):
+    """Espesor de pared y cerco de conteo, de csv/sitio.csv.
+
+    Viven en sitio.csv y no aqui porque los dos son supuestos y ese archivo es
+    el que alimenta la lista de supuestos declarados de la interfaz. Un piso de
+    separacion que descansa en un numero sin medir tiene que decirlo donde se
+    lee, no esconderlo en el codigo.
+    """
+    ruta = os.path.join(carpeta_csv, 'sitio.csv')
+    vals = {'pared_arena_cm': 20.0, 'cerco_diametro_cm': 0.0,
+            'cerco_en_todos_los_nidos': False}
+    if not os.path.exists(ruta):
+        return vals
+    try:
+        v = {f['campo']: f['valor'] for f in cargar_csv(ruta)}
+    except Exception:
+        return vals
+
+    vals['pared_arena_cm'] = float(v.get('pared_arena_cm', 20) or 20)
+    # El cerco solo cuenta como huella si se instala en TODOS los nidos. Si se
+    # pone por muestreo, no se puede exigir que el corral entero reserve 60 cm
+    # por nido para una estructura que la mayoria no va a llevar.
+    en_todos = str(v.get('cerco_conteo_en_todos_los_nidos', 'no')).strip().lower() \
+               in ('1', 'si', 'true')
+    vals['cerco_diametro_cm'] = (float(v.get('cerco_conteo_diametro_cm', 0) or 0)
+                                 if en_todos else 0.0)
+    vals['cerco_en_todos_los_nidos'] = en_todos
+    return vals
+
+
+def piso_separacion(base, corral, especie_a, especie_b=None):
+    """Distancia MINIMA FISICA entre dos nidos, de centro a centro, en cm.
+
+    No es la separacion de la NOM-162 (100/120/150 cm). Esa es el objetivo que
+    el AG persigue y que puede no alcanzarse cuando el corral se llena. Esto es
+    el limite por debajo del cual la colocacion DEJA DE SER EJECUTABLE:
+
+        piso = radio_camara(a) + radio_camara(b) + pared_arena
+
+    Los dos radios son geometria: por debajo de su suma las dos excavaciones se
+    intersecan y se estaria pidiendo enterrar dos nidadas en el mismo hoyo. La
+    pared de arena es un supuesto declarado (sitio.csv).
+
+    Si el Santuario instala el cerco de conteo en todos los nidos, la huella en
+    superficie es el cerco -60 cm de diametro- y no la camara, asi que el piso
+    sube a ese valor para las especies cuya camara es mas angosta.
+
+    POR QUE ES RESTRICCION Y NO PENALIZACION: metido en la aptitud, el AG lo
+    negociaria -perderia un poco de cumplimiento a cambio de crias-, que es
+    exactamente el error que ya tuvo el termino de separacion. Aqui se impone
+    al CONSTRUIR las colocaciones: la rejilla no genera casillas por debajo del
+    piso y las mutaciones rechazan al candidato que lo viole. Ningun individuo
+    de la poblacion puede incumplirlo, asi que no hay nada que negociar.
+    """
+    if especie_b is None:
+        especie_b = especie_a
+
+    ra = float(base.get(especie_a, {}).get('radio_camara_cm', 0.0))
+    rb = float(base.get(especie_b, {}).get('radio_camara_cm', 0.0))
+    if ra <= 0.0 or rb <= 0.0:
+        # Sin datos de camara no se inventa un piso: se cae al comportamiento
+        # anterior y quien lea el resultado vera la separacion efectiva.
+        return 0.0
+
+    pared = float((corral or {}).get('pared_arena_cm', 20.0))
+    piso  = ra + rb + pared
+
+    cerco = float((corral or {}).get('cerco_diametro_cm', 0.0))
+    return round(max(piso, cerco), 1)
 
 
 class Gen:
@@ -164,7 +284,7 @@ class Individuo:
         return f"Individuo(n={self.num_nidos()} fit={f_str})"
 
 
-def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
+def separacion_para_alojar(ancho_cm, alto_cm, n_nidos, piso_cm=0.0):
     """Mayor separacion que permite acomodar n_nidos en una rejilla regular.
 
     Busca el paso `s` mas grande tal que floor(ancho/s) * floor(alto/s) >= n.
@@ -173,6 +293,15 @@ def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
 
     Devolver la separacion MAS GRANDE posible importa: cada centimetro que se
     conserva es eclosion que no se pierde.
+
+    `piso_cm` es el limite fisico: la biseccion nunca baja de ahi. Sin el, esta
+    funcion apretaba la rejilla sin limite -su cota inferior era 1.0 cm- y de
+    ahi salio la colocacion de 33.2 cm entre nidos de golfina, menos que el
+    ancho de una camara de huevos. Al devolver el piso cuando ya no alcanza, la
+    rejilla entrega MENOS casillas que nidos pedidos, y ese faltante es
+    informacion: significa que el corral esta lleno, y quien llama tiene que
+    decidir que hacer con los nidos que sobran (ver `admitir_nidos`), no
+    encimarlos.
     """
     if n_nidos <= 0:
         return float(min(ancho_cm, alto_cm))
@@ -180,9 +309,15 @@ def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
     def caben(s):
         return max(1, int(ancho_cm / s)) * max(1, int(alto_cm / s)) >= n_nidos
 
-    lo, hi = 1.0, float(max(ancho_cm, alto_cm))
+    piso = max(0.1, float(piso_cm))
+    lo, hi = piso, float(max(ancho_cm, alto_cm))
     if caben(hi):
         return hi
+    if not caben(piso):
+        # Ni al limite fisico alcanzan las casillas. Se devuelve el piso: es la
+        # rejilla mas densa que se puede excavar, y los nidos que no quepan en
+        # ella no caben en el corral.
+        return piso
     for _ in range(60):
         mid = (lo + hi) / 2.0
         if caben(mid):
@@ -190,6 +325,251 @@ def separacion_para_alojar(ancho_cm, alto_cm, n_nidos):
         else:
             hi = mid
     return lo
+
+
+def capacidad_corral(base, corral, area_cm2, nidos_previos=None,
+                     separaciones=None):
+    """Cuantos nidos caben, por especie, a una separacion dada.
+
+    Cada nido ocupa una casilla cuadrada de lado igual a su separacion, asi que
+    la condicion de empaque es  suma(n_e * sep_e^2) <= area disponible.  Se
+    calcula sobre el area y no sobre la rejilla de zonas a proposito: el ancho
+    de cada franja depende de cuantos nidos se le asignen, asi que preguntarle
+    a la rejilla su capacidad antes de saber el reparto seria circular.
+
+    Devuelve el maximo de nidos de UNA especie si se le diera el corral entero.
+    Sirve para situar la jornada en una de tres bandas, que es la informacion
+    que de verdad hace falta:
+
+        demanda <= capacidad a la NORMA     -> se siembra conforme a la NOM-162
+        entre una y otra                    -> cabe, pero se incumple la norma
+        demanda >  capacidad al PISO        -> fisicamente no cabe
+    """
+    disponible = float(area_cm2)
+    for p in (nidos_previos or []):
+        esp = p.get('especie', 'golfina')
+        sep = float((separaciones or {}).get(esp)
+                    or base.get(esp, {}).get('sep_min', 100.0))
+        disponible -= sep ** 2
+    disponible = max(0.0, disponible)
+
+    cap = {}
+    for e in base:
+        sep = float((separaciones or {}).get(e) or base[e].get('sep_min', 100.0))
+        cap[e] = int(disponible / (sep ** 2)) if sep > 0 else 0
+    cap['area_disponible_cm2'] = disponible
+    return cap
+
+
+def _ajustar_por_rejilla(admitidos, base, corral, nidos_previos=None,
+                         max_vueltas=40):
+    """Recorta la admision hasta que cada franja tenga casillas para sus nidos.
+
+    POR QUE NO BASTA EL AREA. El ancho de cada franja es proporcional al area
+    que su especie necesita, y dentro de la franja la rejilla es rectangular:
+    `floor(ancho/paso) x floor(alto/paso)`. Las dos divisiones enteras tiran
+    espacio. Con 200/60/20 nidos en un corral de 10 x 8 m el area dice que
+    caben los 280, y las franjas reales dan 204 casillas para golfina (le
+    sobran 4), 56 para prieta (le faltan 4) y 11 para laud (le faltan 9).
+
+    COMO CONVERGE. Si a una especie le faltan casillas, la unica forma de
+    darle mas ancho es quitarle nidos a OTRA -los anchos son proporcionales-,
+    asi que se recorta la especie de menor prioridad de conservacion que
+    todavia tenga nidos. El total baja en cada vuelta, asi que el bucle
+    termina; el tope de vueltas es una red de seguridad, no el mecanismo.
+
+    Esto es lo que hace que el programa pueda decir "no caben" con un numero
+    exacto en lugar de proponer una colocacion imposible.
+    """
+    n = {e: int(v) for e, v in admitidos.items()}
+    recortes = {}
+    detalle = {}
+
+    for _vuelta in range(max_vueltas):
+        if sum(n.values()) == 0:
+            break
+        gestor = GestorZonas(corral, n.get('golfina', 0), n.get('prieta', 0),
+                             n.get('laud', 0), base)
+        faltan = {}
+        detalle = {}
+        for e, pedidos in n.items():
+            if pedidos <= 0:
+                continue
+            zona = 'zona_%s' % e
+            if not gestor.limites_zona(zona):
+                faltan[e] = pedidos
+                continue
+            slots = gestor.slots_suficientes(zona, base[e]['sep_min'],
+                                             nidos_previos, pedidos)
+            detalle[e] = {'pedidos': pedidos, 'casillas': len(slots)}
+            if len(slots) < pedidos:
+                faltan[e] = pedidos - len(slots)
+
+        if not faltan:
+            break
+
+        # Se recorta la especie MENOS amenazada que aun tenga nidos: darle
+        # ancho a quien le falta exige quitarselo a alguien, y esa decision
+        # sigue el mismo criterio de conservacion que el resto del reparto.
+        candidatas = [e for e in n if n[e] > 0]
+        if not candidatas:
+            break
+        victima = max(candidatas, key=lambda e: (base[e].get('prioridad', 99), e))
+        quitar = max(1, sum(faltan.values()))
+        quitar = min(quitar, n[victima])
+        n[victima] -= quitar
+        recortes[victima] = recortes.get(victima, 0) + quitar
+
+    return n, {'recortes': recortes, 'casillas_por_zona': detalle}
+
+
+def admitir_nidos(demanda, base, corral, nidos_previos=None):
+    """Cuantos nidos de cada especie entran al corral, y cuantos sobran.
+
+    QUE PROBLEMA RESUELVE. Hasta ahora, cuando llegaban mas nidos de los que
+    caben, el sistema rellenaba con la ULTIMA casilla repetida: dos, tres o
+    diez nidos con exactamente las mismas coordenadas. La colocacion se veia
+    valida y pedia enterrar varias nidadas en el mismo hoyo. Con el piso de
+    separacion puesto eso ya no puede pasar, y entonces hay que responder la
+    pregunta que quedaba tapada: si no caben, quienes entran.
+
+    CRITERIO: prioridad por riesgo de extincion (csv/riesgo_extincion.csv). Se
+    atiende primero la demanda de la especie mas amenazada y la menos amenazada
+    absorbe el faltante.
+
+    POR QUE NO SE MAXIMIZAN CRIAS. Seria lo natural en un optimizador, y da el
+    resultado contrario al objetivo del proyecto: el laud pone nidadas mas
+    pequenas y necesita 150 cm de separacion contra los 100 de la golfina, asi
+    que rinde muchas menos crias por metro cuadrado. Un criterio de crias puras
+    dejaria fuera al laud del Pacifico oriental, que esta En Peligro Critico,
+    para meter mas golfinas, que estan Vulnerables. Preservar una especie en
+    peligro no es lo mismo que producir el mayor numero de crias, y aqui esas
+    dos cosas se contradicen: es una decision de conservacion, no de algoritmo,
+    y queda escrita en un CSV para que se pueda discutir y cambiar.
+
+    Devuelve un dict con `admitidos`, `sobrantes`, la banda en la que cayo la
+    jornada y con que separacion se resolvio.
+    """
+    demanda = {e: int(n) for e, n in (demanda or {}).items() if int(n) > 0}
+    total = sum(demanda.values())
+
+    # El area se DERIVA del corral, no se recibe aparte. Recibirla como
+    # argumento permitia que las dos no coincidieran: en una prueba se paso el
+    # area de un corral de 10 x 8 m junto con el corral de 30 x 40, y la
+    # comprobacion por area declaraba que cabian 280 nidos mientras la
+    # comprobacion por rejilla media otro corral. Un solo origen, un solo
+    # corral.
+    area_cm2 = float(corral['largo_cm']) * float(corral['ancho_cm'])
+
+    sep_norma = {e: float(base[e].get('sep_min', 100.0)) for e in base}
+    sep_piso  = {e: (piso_separacion(base, corral, e) or sep_norma[e])
+                 for e in base}
+
+    cap_norma = capacidad_corral(base, corral, area_cm2, nidos_previos, sep_norma)
+    cap_piso  = capacidad_corral(base, corral, area_cm2, nidos_previos, sep_piso)
+
+    def cabe(dem, sep, cap):
+        """La condicion de empaque con la mezcla real de especies."""
+        usado = sum(n * sep[e] ** 2 for e, n in dem.items())
+        return usado <= cap['area_disponible_cm2']
+
+    if cabe(demanda, sep_norma, cap_norma):
+        banda = 'norma'
+        separaciones = sep_norma
+        admitidos = dict(demanda)
+    elif cabe(demanda, sep_piso, cap_piso):
+        # Cabe, pero apretando por debajo de la NOM-162. Entran todos: apretar
+        # tiene un costo en eclosion, pero dejar un nido fuera del corral lo
+        # expone a saqueo y depredacion, que es peor.
+        banda = 'apretado'
+        separaciones = sep_piso
+        admitidos = dict(demanda)
+    else:
+        banda = 'excedido'
+        separaciones = sep_piso
+        admitidos = {}
+        libre = cap_piso['area_disponible_cm2']
+        # Orden de atencion: primero la especie mas amenazada. Con prioridades
+        # iguales (sin archivo de riesgo) el orden queda alfabetico y estable.
+        orden = sorted(demanda, key=lambda e: (base[e].get('prioridad', 99), e))
+        for e in orden:
+            celda = separaciones[e] ** 2
+            caben = int(libre / celda) if celda > 0 else 0
+            n = min(demanda[e], max(0, caben))
+            admitidos[e] = n
+            libre -= n * celda
+
+    # El reparto por AREA es solo una cota superior. El corral se divide en
+    # franjas rectangulares, una por especie, y dentro de cada franja la
+    # rejilla es tambien rectangular: una franja de 261 cm con paso de 55 cm da
+    # 4 columnas y desperdicia 41 cm. Medido, esa cuantizacion hacia que el
+    # area dijera "caben los 280" mientras la franja de prieta tenia 56
+    # casillas para 60 nidos y la de laud 11 para 20. El AG recibia 13 nidos
+    # que no tenian donde ir y la reparacion no podia converger.
+    #
+    # Aqui se comprueba contra la geometria real de las franjas y se recorta lo
+    # que haga falta, siempre por prioridad de riesgo de extincion.
+    admitidos, ajuste = _ajustar_por_rejilla(admitidos, base, corral,
+                                             nidos_previos)
+
+    sobrantes = {e: demanda[e] - admitidos.get(e, 0) for e in demanda}
+    if ajuste['recortes'] and banda != 'excedido':
+        # Cabia por area pero no por rejilla: la jornada esta excedida igual.
+        banda = 'excedido'
+    return {
+        'banda':           banda,
+        'ajuste_rejilla':  ajuste,
+        'demanda':         demanda,
+        'admitidos':       admitidos,
+        'sobrantes':       {e: n for e, n in sobrantes.items() if n > 0},
+        'total_demanda':   total,
+        'total_admitidos': sum(admitidos.values()),
+        'total_sobrantes': sum(sobrantes.values()),
+        'separaciones':    {e: round(separaciones[e], 1) for e in separaciones},
+        'piso':            {e: round(sep_piso[e], 1) for e in sep_piso},
+        'capacidad_norma': {e: cap_norma[e] for e in base},
+        'capacidad_piso':  {e: cap_piso[e] for e in base},
+        'prioridades':     {e: base[e].get('prioridad', 99) for e in base},
+        'categorias':      {e: base[e].get('categoria_uicn', '') for e in base},
+    }
+
+
+def posicion_mas_libre(lim, ocupadas, n_muestras=120, rng=None):
+    """Punto de la zona que queda MAS LEJOS del nido mas cercano.
+
+    Se usa cuando ya no hay casilla libre en la rejilla. Antes, en ese caso, el
+    codigo repetia la ultima casilla:
+
+        x, y = slots[k] if k < len(slots) else slots[-1]
+
+    Eso ponia dos, tres o diez nidos en EXACTAMENTE las mismas coordenadas:
+    separacion 0 cm, dos nidadas en un hoyo. La colocacion se veia valida y era
+    imposible de ejecutar.
+
+    Esto no arregla el problema de fondo -si no caben, no caben, y de eso se
+    encarga `admitir_nidos`-, pero garantiza que nunca se devuelvan dos nidos
+    superpuestos. Si algun camino llega aqui, el nido queda en el hueco mas
+    holgado que exista y la separacion resultante se puede medir y reportar.
+
+    Vectorizada: la version con dos bucles de Python -120 muestras por el
+    numero de nidos ocupados- costaba 51 segundos POR GENERACION en un corral
+    saturado de 280 nidos. Ahora son dos operaciones de numpy.
+    """
+    import numpy as _np
+    if not ocupadas:
+        r = rng or __import__('random')
+        return (round(r.uniform(lim['xmin'], lim['xmax']), 1),
+                round(r.uniform(lim['ymin'], lim['ymax']), 1))
+
+    m = max(1, int(n_muestras))
+    cxs = _np.round(_np.random.uniform(lim['xmin'], lim['xmax'], m), 1)
+    cys = _np.round(_np.random.uniform(lim['ymin'], lim['ymax'], m), 1)
+    ox = _np.asarray([o[0] for o in ocupadas], dtype=float)
+    oy = _np.asarray([o[1] for o in ocupadas], dtype=float)
+
+    d2 = (cxs[:, None] - ox[None, :]) ** 2 + (cys[:, None] - oy[None, :]) ** 2
+    k = int(_np.argmax(d2.min(axis=1)))
+    return (float(cxs[k]), float(cys[k]))
 
 
 ESPECIES = ('golfina', 'prieta', 'laud')
@@ -241,10 +621,22 @@ class GestorZonas:
         self.conteo   = {'golfina': n_golfina, 'prieta': n_prieta, 'laud': n_laud}
         self.total    = n_golfina + n_prieta + n_laud
         self.base     = base
+        # El corral completo, no solo sus medidas: de aqui salen el espesor de
+        # pared y el cerco de conteo, que fijan el piso de separacion.
+        self.corral   = corral
         self.orden    = tuple(orden) if orden else ESPECIES
         self.limites  = self._calcular_limites()
         self._cache_slots = {}
         self.separacion_efectiva = {}
+        # Zonas donde la rejilla llego al piso y AUN ASI no alcanzaron las
+        # casillas. Lo consulta quien reporta: significa corral lleno.
+        self.zonas_sin_lugar = {}
+
+    def piso(self, especie):
+        """Separacion minima fisica de la especie, en cm. 0 si no hay datos."""
+        if not self.base:
+            return 0.0
+        return piso_separacion(self.base, self.corral, especie)
 
     def _area_necesaria(self, especie):
         """Superficie que pide una especie: sus nidos por su separacion al cuadrado."""
@@ -339,9 +731,26 @@ class GestorZonas:
         # separacion realmente usada queda en self.separacion_efectiva para que
         # quien consuma la rejilla lo reporte.
         if n_requeridos and cols * filas < n_requeridos:
-            paso = separacion_para_alojar(ancho_z, alto_z, n_requeridos)
+            # El piso NO se negocia: es la distancia por debajo de la cual las
+            # dos excavaciones se intersecan. Antes esta bisección bajaba hasta
+            # 1 cm y de ahí salió la colocación de 33.2 cm entre golfinas.
+            piso_esp = self.piso(especie)
+            paso = separacion_para_alojar(ancho_z, alto_z, n_requeridos, piso_esp)
             cols  = max(1, int(ancho_z / paso))
             filas = max(1, int(alto_z  / paso))
+
+            # Si ni al piso alcanzan, la zona está llena. No se aprieta más ni
+            # se repite una casilla: se devuelven las que hay y se deja
+            # constancia, para que quien llame decida qué hacer con los nidos
+            # que no caben en lugar de encimarlos en silencio.
+            if cols * filas < n_requeridos:
+                self.zonas_sin_lugar[nombre_zona] = {
+                    'especie':    especie,
+                    'pedidos':    int(n_requeridos),
+                    'casillas':   cols * filas,
+                    'piso_cm':    round(piso_esp, 1),
+                    'faltan':     int(n_requeridos) - cols * filas,
+                }
 
         self.separacion_efectiva[nombre_zona] = round(paso, 1)
         paso_x = ancho_z / cols
@@ -389,7 +798,16 @@ class GestorZonas:
         slots = self.slots_ordenados(nombre_zona, sep_min, previos,
                                      n_requeridos=objetivo)
         intentos = 0
+        piso_esp = self.piso(lim['especie']) if lim else 0.0
         while len(slots) < n_necesarios and intentos < 20:
+            # Si la rejilla ya esta en el piso fisico, pedir mas casillas no
+            # puede producirlas: apretar mas seria intersecar excavaciones.
+            # Cortar aqui evita veinte vueltas inutiles y, sobre todo, deja
+            # claro que el resultado corto NO es un fallo del bucle sino un
+            # corral lleno.
+            if piso_esp > 0 and self.separacion_efectiva.get(nombre_zona,
+                                                             1e9) <= piso_esp + 0.05:
+                break
             intentos += 1
             objetivo = int(objetivo * 1.25) + 1
             slots = self.slots_ordenados(nombre_zona, sep_min, previos,
@@ -448,6 +866,24 @@ class GestoresZonas:
     @property
     def separacion_efectiva(self):
         return self.gestores[0].separacion_efectiva
+
+    @property
+    def zonas_sin_lugar(self):
+        """Zonas sin lugar, vistas en CUALQUIERA de los repartos probados.
+
+        Se agregan los seis gestores porque el reparto de franjas cambia el
+        ancho de cada zona: un reparto puede dejar sin lugar al laud y otro no,
+        y para reportar honestamente hace falta saber si ocurrio en el que el
+        AG eligio. Cada gestor guarda el suyo; aqui se juntan para el aviso
+        general.
+        """
+        agregado = {}
+        for g in self.gestores:
+            agregado.update(g.zonas_sin_lugar)
+        return agregado
+
+    def piso(self, especie):
+        return self.gestores[0].piso(especie)
 
     @property
     def orden(self):

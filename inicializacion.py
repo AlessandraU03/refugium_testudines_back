@@ -1,6 +1,7 @@
 import random
 import numpy as np
-from cromosoma import Gen, Individuo, ORDENES_ZONAS, resolver_gestor
+from cromosoma import (Gen, Individuo, ORDENES_ZONAS, resolver_gestor,
+                       posicion_mas_libre)
 
 
 def inicializar_poblacion(tam_pob, nidos_entrada, gestor, base,
@@ -78,12 +79,24 @@ def individuo_secuencial(nidos_entrada, gestor, base, nidos_ocupados=None):
         if not slots:
             continue
 
+        lim_z    = gestor.limites_zona(f"zona_{especie}")
+        colocados = [(float(p['x']), float(p['y'])) for p in previos] + list(slots)
+
         for k, id_nido in enumerate(ids):
-            # Tras el bucle esto no debería quedarse corto. Si la zona está
-            # físicamente llena aun con la rejilla apretada al mínimo, se
-            # reutiliza la última casilla: es un corral sin lugar, y el
-            # resultado tiene que verse mal porque lo está.
-            x, y = slots[k] if k < len(slots) else slots[-1]
+            # Si la zona está llena aun con la rejilla apretada al PISO físico,
+            # ya no hay casilla. Antes aquí se repetía la última:
+            #     x, y = slots[k] if k < len(slots) else slots[-1]
+            # y eso ponía varios nidos en las mismas coordenadas exactas, o sea
+            # varias nidadas en un hoyo. Ahora se busca el hueco más holgado
+            # que quede: sigue siendo un corral sin lugar y el resultado tiene
+            # que verse mal, pero se puede ejecutar y se puede medir.
+            if k < len(slots):
+                x, y = slots[k]
+            elif lim_z:
+                x, y = posicion_mas_libre(lim_z, colocados)
+                colocados.append((x, y))
+            else:
+                continue
             genes.append(Gen(id_nido, especie, x, y, e['prof_opt']))
 
     return Individuo(genes)
@@ -111,8 +124,14 @@ def _crear_semi(nidos_entrada, gestor, base, nivel, nidos_ocupados):
                                             nidos_ocupados, len(ids)))
         if not pos:
             continue
+        # Mismo caso que en el llenado secuencial: `pos.append(pos[-1])`
+        # duplicaba coordenadas y sembraba dos nidos en el mismo punto.
+        ocupadas = [(float(p['x']), float(p['y']))
+                    for p in (nidos_ocupados or [])] + list(pos)
         while len(pos) < len(ids):
-            pos.append(pos[-1])
+            hueco = posicion_mas_libre(lim, ocupadas)
+            pos.append(hueco)
+            ocupadas.append(hueco)
         random.shuffle(pos)
 
         for id_nido, (bx, by) in zip(ids, pos):
@@ -166,6 +185,11 @@ def _crear_aleatorio(nidos_entrada, gestor, base, nidos_ocupados):
         paso = gestor.separacion_efectiva.get(f"zona_{especie}")
         if paso:
             sep = min(sep, float(paso))
+        # Nunca por debajo del piso fisico: la mitad aleatoria de la poblacion
+        # coloca libremente, y sin este suelo podia nacer con nidos a menos de
+        # lo que mide una camara de huevos.
+        if hasattr(gestor, 'piso'):
+            sep = max(sep, gestor.piso(especie))
         sep_sq = (sep - 0.05) ** 2
 
         ocupadas = [(float(o['x']), float(o['y']))
