@@ -202,8 +202,100 @@ def fraccion_sombra_dia(x_cm, y_cm, dia_del_anio, sitio, malla=None):
     return r
 
 
+def fracciones_sombra_dia(xs_cm, ys_cm, dia_del_anio, sitio, malla=None):
+    """Como `fraccion_sombra_dia`, pero para TODOS los nidos de una vez.
+
+    POR QUE HACE FALTA. La version por nido recorre en Python los 144 instantes
+    del dia y para cada uno resuelve una tangente y dos trigonometricas. Tiene
+    memoria, pero el AG mueve los nidos por posiciones CONTINUAS, asi que casi
+    ninguna consulta acierta: cada generacion pregunta por coordenadas nuevas.
+    Medido en un proceso limpio, una jornada de 270 nidos tardaba 108 s, por
+    encima del minuto que tiene que tardar.
+
+    Aqui la geometria se resuelve como una matriz de nidos por instantes. Para
+    270 nidos son 39 000 elementos, una operacion de numpy, en lugar de 39 000
+    vueltas de interprete.
+
+    Devuelve un arreglo con la fraccion de la insolacion del dia que la malla
+    intercepta en cada nido, en el mismo orden en que llegaron.
+    """
+    import numpy as np
+
+    xs = np.asarray(xs_cm, dtype=float)
+    ys = np.asarray(ys_cm, dtype=float)
+    if xs.size == 0:
+        return np.empty(0, dtype=float)
+
+    if malla is None:
+        malla = sitio.get('malla')
+    if not malla:
+        return np.zeros(xs.shape, dtype=float)
+
+    d, cos_rel, sin_rel, peso, total = _trayectoria_arreglos(
+        int(dia_del_anio), sitio)
+    if total <= 0 or d.size == 0:
+        return np.zeros(xs.shape, dtype=float)
+
+    # Donde cruza el plano de la malla el rayo que va de cada nido al sol, en
+    # cada instante del dia. Misma geometria que punto_bajo_malla, en matriz.
+    cx = xs[:, None] + d[None, :] * cos_rel[None, :]
+    cy = ys[:, None] + d[None, :] * sin_rel[None, :]
+
+    bajo = ((cx >= malla['xmin']) & (cx <= malla['xmax']) &
+            (cy >= malla['ymin']) & (cy <= malla['ymax']))
+
+    return (bajo * peso[None, :]).sum(axis=1) / total
+
+
 _CACHE_NIDO = {}
 _CACHE_TRAYECTORIA = {}
+_CACHE_ARREGLOS = {}
+
+
+def _trayectoria_arreglos(dia_del_anio, sitio):
+    """La trayectoria del dia como arreglos listos para la matriz.
+
+    Precalcula lo que no depende del nido: la distancia horizontal a la que el
+    rayo cruza el plano de la malla, el coseno y el seno del azimut relativo a
+    la orientacion del corral, y el peso energetico de cada instante. Depende
+    solo de la fecha y del sitio, asi que se memoriza.
+
+    Se descartan los instantes con el sol por debajo de 0.5 grados sobre el
+    horizonte, igual que hace punto_bajo_malla: ahi la tangente se va a cero y
+    la sombra proyectada seria de kilometros.
+    """
+    import numpy as np
+
+    clave = (int(dia_del_anio), sitio['latitud'], sitio['longitud'],
+             sitio['huso'], sitio.get('paso_minutos', 10),
+             sitio['orientacion'], sitio['altura_malla'])
+    if clave in _CACHE_ARREGLOS:
+        return _CACHE_ARREGLOS[clave]
+
+    tray = _trayectoria_dia(int(dia_del_anio), sitio)
+    if not tray:
+        vacio = (np.empty(0), np.empty(0), np.empty(0), np.empty(0), 0.0)
+        _CACHE_ARREGLOS[clave] = vacio
+        return vacio
+
+    alt = np.array([p[0] for p in tray], dtype=float)
+    azi = np.array([p[1] for p in tray], dtype=float)
+    pes = np.array([p[2] for p in tray], dtype=float)
+
+    # El total se calcula sobre TODOS los instantes con sol, tambien los que se
+    # descartan por altura: son parte de la insolacion del dia, y quitarlos del
+    # denominador inflaria la fraccion de sombra.
+    total = float(pes.sum())
+
+    util = alt > 0.5
+    alt, azi, pes = alt[util], azi[util], pes[util]
+
+    d = float(sitio['altura_malla']) / np.tan(np.radians(alt))
+    rel = np.radians(azi - float(sitio['orientacion']))
+
+    res = (d, np.cos(rel), np.sin(rel), pes, total)
+    _CACHE_ARREGLOS[clave] = res
+    return res
 
 
 def _trayectoria_dia(dia_del_anio, sitio):

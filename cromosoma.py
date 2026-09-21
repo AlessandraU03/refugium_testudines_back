@@ -628,15 +628,24 @@ class GestorZonas:
         self.limites  = self._calcular_limites()
         self._cache_slots = {}
         self.separacion_efectiva = {}
+        self._cache_piso = {}
         # Zonas donde la rejilla llego al piso y AUN ASI no alcanzaron las
         # casillas. Lo consulta quien reporta: significa corral lleno.
         self.zonas_sin_lugar = {}
 
     def piso(self, especie):
-        """Separacion minima fisica de la especie, en cm. 0 si no hay datos."""
+        """Separacion minima fisica de la especie, en cm. 0 si no hay datos.
+
+        Memorizado por gestor: los operadores lo consultan una vez por gen, o
+        sea unas 290 000 veces por corrida, y ni la base ni el corral cambian
+        mientras el AG corre.
+        """
         if not self.base:
             return 0.0
-        return piso_separacion(self.base, self.corral, especie)
+        if especie not in self._cache_piso:
+            self._cache_piso[especie] = piso_separacion(
+                self.base, self.corral, especie)
+        return self._cache_piso[especie]
 
     def _area_necesaria(self, especie):
         """Superficie que pide una especie: sus nidos por su separacion al cuadrado."""

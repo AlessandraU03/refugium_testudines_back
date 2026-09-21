@@ -271,19 +271,30 @@ TEMP_BASE_FUENTE = ("Aire: normales SMN Tonala 7168, Arriaga 7182 y Pijijiapan 7
 DELTA_T_POR_CM_PROFUNDIDAD = 0.03
 PROFUNDIDAD_REFERENCIA_CM  = 45.0
 
+_CACHE_FECUNDIDAD = {}
+
+
 def fecundidad_mensual(carpeta_csv=None):
     """Huevos por nido de cada mes, medidos en Puerto Arista durante 2022.
 
     Devuelve {mes: huevos_por_nido}. Los meses sin nidos registrados (mayo)
     quedan fuera del diccionario, para que el llamador caiga en el valor de
     referencia en vez de usar un cero.
+
+    Memorizado: abria y parseaba el CSV en CADA llamada, y una corrida del AG
+    la llama unas 6 400 veces. El archivo no cambia mientras corre el servidor.
     """
+    if carpeta_csv in _CACHE_FECUNDIDAD:
+        return _CACHE_FECUNDIDAD[carpeta_csv]
+
     import csv as _csv
     import os as _os
     if carpeta_csv is None:
         carpeta_csv = _os.path.join(_os.path.dirname(__file__), 'csv')
     ruta = _os.path.join(carpeta_csv, 'fecundidad_mensual.csv')
+    clave = carpeta_csv
     if not _os.path.exists(ruta):
+        _CACHE_FECUNDIDAD[clave] = {}
         return {}
     with open(ruta, newline='', encoding='utf-8') as f:
         filas = list(_csv.DictReader(f))
@@ -292,6 +303,7 @@ def fecundidad_mensual(carpeta_csv=None):
         h = float(r['huevos_por_nido'])
         if h > 0:
             salida[int(r['mes'])] = h
+    _CACHE_FECUNDIDAD[clave] = salida
     return salida
 
 
@@ -808,8 +820,10 @@ def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
     # --- sombra y riego, nido por nido -----------------------------------
     if sitio is not None and dia_del_anio is not None:
         import solar
-        sombra = np.array([solar.fraccion_sombra_dia(xi, yi, dia_del_anio, sitio)
-                           for xi, yi in zip(x, y)])
+        # Vectorizado sobre todos los nidos: la version nido por nido recorria
+        # en Python los 144 instantes del dia para cada uno, y su memoria casi
+        # nunca acertaba porque el AG mueve los nidos por posiciones continuas.
+        sombra = solar.fracciones_sombra_dia(x, y, dia_del_anio, sitio)
     else:
         sombra = np.array([1.0 if en_sombra(xi, yi, rectangulos_sombra) else 0.0
                            for xi, yi in zip(x, y)])
