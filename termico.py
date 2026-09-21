@@ -754,7 +754,198 @@ def en_sombra(x_cm, y_cm, rectangulos_sombra):
 def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
                        rectangulos_sombra=None, huevos_por_defecto=None,
                        delta_por_densidad=DELTA_T_POR_NIDO_M2,
-                       sitio=None, dia_del_anio=None, params_especie=None):
+                       sitio=None, dia_del_anio=None, params_especie=None,
+                       detalle=True):
+    """Version vectorizada. Ver _evaluar_colocacion_lento para la original.
+
+    Hace con numpy, sobre todos los nidos a la vez, lo que antes era un bucle
+    de Python nido por nido. La funcion de aptitud llama a esto unas 5 000
+    veces por corrida y cada llamada recorria 170 nidos: 657 000 pasadas por
+    toda la cadena termica. Esa era la mitad del tiempo de una corrida.
+
+    `detalle=False` evita construir los diccionarios por nido, que son 860 000
+    por corrida y solo hacen falta cuando alguien va a leerlos uno por uno.
+    Los arreglos quedan siempre en la clave 'arrays'.
+
+    Los redondeos se replican paso a paso -no por prolijidad, sino porque el
+    original redondea la temperatura a dos decimales y las crias a uno ANTES
+    de sumarlas, de modo que omitirlos cambiaria los totales.
+    """
+    import numpy as np
+
+    if not nidos:
+        return {'indice_eclosion': 1.0, 'resumen': predecir_conjunto([]),
+                'por_nido': [], 'arrays': {}}
+
+    es_dict = isinstance(nidos[0], dict)
+
+    def col(nombre, alterno):
+        if es_dict:
+            return [n.get(nombre, alterno) for n in nidos]
+        return [getattr(n, nombre, alterno) for n in nidos]
+
+    x = np.array([float(v) for v in col('x', 0.0)])
+    y = np.array([float(v) for v in col('y', 0.0)])
+    especies = col('especie', 'golfina')
+    huevos_def = huevos_por_defecto or HUEVOS_REFERENCIA
+    huevos = np.array([float(h) if h else float(huevos_def)
+                       for h in col('num_huevas', 0)])
+    tasa = np.array([float(tasa_base_por_especie.get(e, 0.75)) for e in especies])
+
+    prof_raw = col('prof', None)
+    prof_valida = np.array([p is not None for p in prof_raw])
+    prof = np.array([float(p) if p is not None else PROFUNDIDAD_REFERENCIA_CM
+                     for p in prof_raw])
+
+    pe = params_especie or {}
+    pivote = np.array([float((pe.get(e) or {}).get('pivote') or PIVOTE_C)
+                       for e in especies])
+    s_gir = np.array([float((pe.get(e) or {}).get('s') or S_GIRONDOT)
+                      for e in especies])
+
+    dens = np.array(densidades_locales(list(zip(x, y))))
+
+    # --- sombra y riego, nido por nido -----------------------------------
+    if sitio is not None and dia_del_anio is not None:
+        import solar
+        sombra = np.array([solar.fraccion_sombra_dia(xi, yi, dia_del_anio, sitio)
+                           for xi, yi in zip(x, y)])
+    else:
+        sombra = np.array([1.0 if en_sombra(xi, yi, rectangulos_sombra) else 0.0
+                           for xi, yi in zip(x, y)])
+
+    if sitio and sitio.get('riego_activo'):
+        r = sitio['riego']
+        riego = ((x >= r['xmin']) & (x <= r['xmax']) &
+                 (y >= r['ymin']) & (y <= r['ymax']))
+    else:
+        riego = np.zeros(len(nidos), dtype=bool)
+
+    # --- mitigacion: sombra y riego combinados ---------------------------
+    f = np.clip(sombra * (atenuacion_malla_del_sitio() / ATENUACION_REFERENCIA_HILL),
+                0.0, 1.0)
+    # sombra plena por profundidad: -2.2 C a 45 cm, con pendiente 0.03 C/cm
+    # hacia lo profundo; equivalente a interpolar y extrapolar la tabla.
+    sombra_plena = DELTA_T_SOMBRA_C + np.maximum(0.0, prof - 45.0) * 0.03
+
+    dosis = RIEGO_DOSIS_REFERENCIA_MM
+    nodos_mm = [m for m, _ in CURVA_RIEGO_MM]
+    nodos_val = []
+    for _m, tabla in CURVA_RIEGO_MM:
+        d45, d75 = tabla[45.0], tabla[75.0]
+        nodos_val.append(np.where(prof <= 45.0, d45,
+                         np.where(prof >= 75.0, d75,
+                                  d45 + (prof - 45.0) / 30.0 * (d75 - d45))))
+    riego_solo = np.zeros_like(prof)
+    for k in range(len(nodos_mm) - 1):
+        if nodos_mm[k] <= dosis <= nodos_mm[k + 1]:
+            t = (dosis - nodos_mm[k]) / (nodos_mm[k + 1] - nodos_mm[k])
+            riego_solo = nodos_val[k] + t * (nodos_val[k + 1] - nodos_val[k])
+            break
+
+    aporte_sombra = DELTA_T_SOMBRA_RIEGO_C - DELTA_T_RIEGO_C
+    delta = np.where(riego, riego_solo + f * aporte_sombra, f * sombra_plena)
+
+    # --- temperaturas ----------------------------------------------------
+    t_base = float(temperatura_base(mes or 9))
+    t_pts = t_base + DELTA_T_POR_HUEVO_C * (huevos - HUEVOS_REFERENCIA)
+    t_pts = t_pts + np.where(prof_valida,
+                             (PROFUNDIDAD_REFERENCIA_CM - prof) * DELTA_T_POR_CM_PROFUNDIDAD,
+                             0.0)
+    t_pts = np.round(t_pts + delta, 2)
+
+    exceso = np.maximum(0.0, dens - DENSIDAD_REFERENCIA_M2)
+    t_fin = np.round(t_pts + SALTO_METABOLICO_FINAL_C + delta_por_densidad * exceso, 2)
+
+    # --- eclosion y sexo --------------------------------------------------
+    xs_c = [d for d, _ in CURVA_ECLOSION_DENSIDAD]
+    ys_c = [e for _, e in CURVA_ECLOSION_DENSIDAD]
+    base_curva = ys_c[0]
+    absoluto = np.interp(dens, xs_c, ys_c, left=ys_c[0], right=ys_c[-1])
+    factor = absoluto / base_curva
+
+    # El original redondea la tasa SOLO para reportarla: las crias se calculan
+    # con la tasa exacta, y las crias por sexo con las crias exactas. Replicar
+    # ese orden importa, porque redondear antes cambia los totales.
+    tasa_exacta = np.clip(tasa * factor, 0.0, 1.0)
+    tasa_i = np.round(tasa_exacta, 3)
+    crias_exactas = huevos * tasa_exacta
+    crias = np.round(crias_exactas, 1)
+
+    with np.errstate(over='ignore'):
+        pm = 1.0 / (1.0 + np.exp((pivote - t_pts) / s_gir))
+    pm = np.clip(np.nan_to_num(pm, nan=0.0), 0.0, 1.0)
+    pct_machos = np.round(pm * 100.0, 1)
+    pct_hembras = np.round((1.0 - pm) * 100.0, 1)
+
+    crias_h = np.round(crias_exactas * pct_hembras / 100.0, 1)
+    crias_m = np.round(crias_exactas * pct_machos / 100.0, 1)
+    margen = np.round(LIMITE_LETAL_C - t_fin, 2)
+    en_riesgo = t_fin >= LIMITE_LETAL_C
+
+    # --- agregados --------------------------------------------------------
+    total_crias = float(crias.sum())
+    resumen = {
+        'n_nidos': len(nidos),
+        'crias_esperadas': round(total_crias, 1),
+        'crias_hembras': round(float(crias_h.sum()), 1),
+        'crias_machos': round(float(crias_m.sum()), 1),
+        'pct_hembras': round(100.0 * float(crias_h.sum()) / total_crias, 1) if total_crias else 0.0,
+        'pct_machos': round(100.0 * float(crias_m.sum()) / total_crias, 1) if total_crias else 0.0,
+        'nidos_en_riesgo_termico': int(en_riesgo.sum()),
+        'temp_pts_media_c': round(float(t_pts.mean()), 2),
+    }
+    crias_sin_hacinamiento = float((huevos * tasa).sum())
+    indice = (resumen['crias_esperadas'] / crias_sin_hacinamiento
+              if crias_sin_hacinamiento > 0 else 1.0)
+
+    arrays = {
+        'densidad_m2': dens, 'sombra': sombra, 'riego': riego,
+        'temp_pts_c': t_pts, 'temp_final_c': t_fin,
+        'pct_hembras': pct_hembras, 'pct_machos': pct_machos,
+        'margen_c': margen, 'en_riesgo': en_riesgo,
+        'crias': crias, 'tasa_eclosion': tasa_i, 'factor_densidad': factor,
+    }
+
+    por_nido = []
+    if detalle:
+        for i in range(len(nidos)):
+            por_nido.append({
+                'densidad_m2':     round(float(dens[i]), 2),
+                'temp_base_c':     round(t_base, 2),
+                'factor_densidad': round(float(factor[i]), 3),
+                'tasa_eclosion':   float(tasa_i[i]),
+                'crias_esperadas': float(crias[i]),
+                'crias_hembras':   float(crias_h[i]),
+                'crias_machos':    float(crias_m[i]),
+                'sombra':          float(sombra[i]),
+                'riego':           bool(riego[i]),
+                'proporcion_sexual': {
+                    'temp_pts_c':  float(t_pts[i]),
+                    'pct_machos':  float(pct_machos[i]),
+                    'pct_hembras': float(pct_hembras[i]),
+                },
+                'riesgo_termico': {
+                    'temp_ultimo_tercio_c': float(t_fin[i]),
+                    'limite_letal_c':       LIMITE_LETAL_C,
+                    'margen_c':             float(margen[i]),
+                    'en_riesgo':            bool(en_riesgo[i]),
+                },
+            })
+
+    return {
+        'indice_eclosion': round(min(1.0, max(0.0, indice)), 6),
+        'crias_sin_hacinamiento': round(crias_sin_hacinamiento, 1),
+        'resumen': resumen,
+        'por_nido': por_nido,
+        'arrays': arrays,
+    }
+
+
+def _evaluar_colocacion_lento(nidos, tasa_base_por_especie, mes=None,
+                              rectangulos_sombra=None, huevos_por_defecto=None,
+                              delta_por_densidad=DELTA_T_POR_NIDO_M2,
+                              sitio=None, dia_del_anio=None, params_especie=None):
     """Evalua una colocacion completa de nidos.
 
     `nidos` es una lista de objetos con atributos x, y, especie y num_huevas

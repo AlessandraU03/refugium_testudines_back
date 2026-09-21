@@ -542,10 +542,13 @@ def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None):
     if mes is not None:
         dia = (int(mes) - 1) * 30 + 15
 
+    # detalle=False: la aptitud lee los arreglos, no los diccionarios por nido.
+    # Construirlos eran 860 000 diccionarios por corrida que nadie consultaba.
     return termico.evaluar_colocacion(
         vecinos, tasas, mes=mes, rectangulos_sombra=SOMBRAS,
         huevos_por_defecto=termico.huevos_del_mes(mes) if mes else None,
-        sitio=sitio, dia_del_anio=dia, params_especie=params_especie)
+        sitio=sitio, dia_del_anio=dia, params_especie=params_especie,
+        detalle=False)
 
 
 def _indice_eclosion(individuo, base, nidos_previos=None, mes=None):
@@ -607,17 +610,20 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
     resumen = r['resumen']
     eclosion = r['indice_eclosion']
 
+    # Arreglos del modelo térmico. Los nidos de esta jornada ocupan las
+    # primeras posiciones; los ya enterrados van después y no se pueden mover.
+    arr = r['arrays']
+    n_propios = len(individuo.genes)
+
     # Riesgo letal: los nidos que rebasarían 36 °C en el último tercio no son
     # un matiz, son nidada perdida. Entra como factor, no como desempate.
     # Riesgo letal, también sobre los nidos que el AG controla. Se cuenta como
     # margen continuo y no como un escalón en los 36 °C: un nido a +0.41 °C del
     # límite no "está en riesgo", pero está mucho peor que uno a +1.42 °C, y sin
     # gradiente el AG no tiene razón para preferir el segundo.
-    propios_riesgo = r['por_nido'][:len(individuo.genes)] or r['por_nido']
     MARGEN_COMODO = 2.0       # °C por debajo del límite: a partir de ahí, sin penalización
-    margenes = [min(1.0, max(0.0, p['riesgo_termico']['margen_c'] / MARGEN_COMODO))
-                for p in propios_riesgo]
-    letal = float(sum(margenes) / len(margenes)) if margenes else 1.0
+    margenes = np.clip(arr['margen_c'][:n_propios] / MARGEN_COMODO, 0.0, 1.0)
+    letal = float(np.mean(margenes)) if len(margenes) else 1.0
 
     # Sexo: promedio de la calidad NIDO POR NIDO, no calidad del promedio.
     #
@@ -630,11 +636,10 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
     #
     # Se miden sólo los nidos de esta jornada: los ya enterrados no se pueden
     # mover, y promediarlos dentro sólo diluye la señal de lo que el AG decide.
-    propios = r['por_nido'][:len(individuo.genes)] or r['por_nido']
-    calidades = [1.0 - abs(p['proporcion_sexual']['pct_hembras']
-                           - OBJETIVO_PCT_HEMBRAS) / 100.0
-                 for p in propios]
-    sexo = float(np.clip(sum(calidades) / len(calidades), 0.0, 1.0)) if calidades else 1.0
+    hembras = arr['pct_hembras'][:n_propios]
+    sexo = float(np.clip(
+        np.mean(1.0 - np.abs(hembras - OBJETIVO_PCT_HEMBRAS) / 100.0),
+        0.0, 1.0)) if len(hembras) else 1.0
 
     efecto_prof = np.mean([
         calcular_efecto_profundidad_cientifico(
@@ -671,10 +676,9 @@ def calcular_fitness_cientifico(individuo, gestor, base, corral,
     # de la norma es continua y la maximiza precisamente el llenado uniforme,
     # así que empuja hacia el óptimo biológico en vez de pelearse con él.
     import termico
-    dens_nidos = [p['densidad_m2'] for p in r['por_nido']]
-    cumple_dens = (sum(1 for d in dens_nidos
-                       if d <= termico.DENSIDAD_MAX_NIDOS_M2)
-                   / float(len(dens_nidos))) if dens_nidos else 1.0
+    dens_nidos = arr['densidad_m2']
+    cumple_dens = (float(np.mean(dens_nidos <= termico.DENSIDAD_MAX_NIDOS_M2))
+                   if len(dens_nidos) else 1.0)
 
     biologico = float(np.clip(
         eclosion * efecto_prof * letal * cumple_dens * cumple_sep, 0.0, 1.0))
