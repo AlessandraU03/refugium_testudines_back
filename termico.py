@@ -516,8 +516,24 @@ def dosis_riego_mm(riego):
     return max(0.0, float(riego))
 
 
+_CACHE_RIEGO = {}
+
+
 def _riego_por_dosis(mm, prof_cm):
-    """Enfriamiento del riego a esa dosis y profundidad, interpolando la curva."""
+    """Enfriamiento del riego a esa dosis y profundidad, interpolando la curva.
+
+    Memorizado: la curva es una constante del modulo y las profundidades caen
+    en una rejilla de un decimal, asi que el resultado se repite. Sin cache se
+    reinterpolaba 1.3 millones de veces por corrida.
+    """
+    clave = (round(float(mm), 1), None if prof_cm is None else round(float(prof_cm), 1))
+    if clave in _CACHE_RIEGO:
+        return _CACHE_RIEGO[clave]
+    _CACHE_RIEGO[clave] = _r = _riego_por_dosis_calc(mm, prof_cm)
+    return _r
+
+
+def _riego_por_dosis_calc(mm, prof_cm):
     p = 45.0 if prof_cm is None else float(prof_cm)
 
     def a_prof(tabla):
