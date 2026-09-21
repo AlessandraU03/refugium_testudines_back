@@ -417,10 +417,14 @@ class GestoresZonas:
     entran mas especies habra que cambiar de estrategia: las permutaciones
     crecen como el factorial.
     """
-    def __init__(self, corral, n_golfina, n_prieta, n_laud, base=None):
+    def __init__(self, corral, n_golfina, n_prieta, n_laud, base=None,
+                 ordenes=None):
+        # `ordenes` con un solo elemento deja el reparto FIJO: el AG ya no
+        # puede cambiarlo. Es lo que corresponde cuando el corral ya tiene
+        # nidos enterrados, porque esos no se pueden mover de franja.
         self.gestores = [
             GestorZonas(corral, n_golfina, n_prieta, n_laud, base, orden=o)
-            for o in ORDENES_ZONAS
+            for o in (ordenes or ORDENES_ZONAS)
         ]
         self.conteo = self.gestores[0].conteo
         self.total  = self.gestores[0].total
@@ -457,6 +461,40 @@ class GestoresZonas:
 
     def slots_suficientes(self, *a, **k):
         return self.gestores[0].slots_suficientes(*a, **k)
+
+
+def orden_establecido(nidos_previos, minimo_por_especie=1):
+    """Reparto de franjas que YA tiene el corral, leido de los nidos enterrados.
+
+    Una vez sembrada la primera jornada, el reparto deja de ser una decision:
+    los nidos estan enterrados en su franja y no se pueden mover. Pedirle al
+    personal que la proxima jornada ponga a la golfina en el extremo opuesto
+    no es una recomendacion, es una imposibilidad fisica.
+
+    El orden se deduce de la posicion media de cada especie a lo largo del
+    corral. Devuelve None si no hay nidos previos, que es el unico momento en
+    que el AG puede elegir el reparto libremente.
+    """
+    if not nidos_previos:
+        return None
+
+    acum = {}
+    for n in nidos_previos:
+        esp = n.get('especie') if isinstance(n, dict) else getattr(n, 'especie', None)
+        x = float(n.get('x', 0.0) if isinstance(n, dict) else getattr(n, 'x', 0.0))
+        if esp in ESPECIES:
+            acum.setdefault(esp, []).append(x)
+
+    presentes = {e: sum(v) / len(v) for e, v in acum.items()
+                 if len(v) >= minimo_por_especie}
+    if not presentes:
+        return None
+
+    # Las especies que ya estan, en el orden en que ocupan el corral; las que
+    # todavia no aparecen se anaden al final conservando el orden historico.
+    ordenadas = [e for e, _ in sorted(presentes.items(), key=lambda kv: kv[1])]
+    faltantes = [e for e in ESPECIES if e not in ordenadas]
+    return tuple(ordenadas + faltantes)
 
 
 def resolver_gestor(gestor, idx_orden=0):

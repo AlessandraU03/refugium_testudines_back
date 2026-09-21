@@ -14,7 +14,9 @@ def inicializar_poblacion(tam_pob, nidos_entrada, gestor, base,
     # golfina-prieta-laud, el AG tendria que descubrir por mutacion que existen
     # los otros cinco, y con la malla actual ese es el peor de los seis para
     # prieta y laud.
-    n_ordenes = len(ORDENES_ZONAS)
+    # Si el corral ya tiene nidos enterrados, el gestor trae un solo reparto y
+    # toda la poblacion nace con el: el reparto dejo de ser una decision.
+    n_ordenes = len(gestor) if hasattr(gestor, '__len__') else len(ORDENES_ZONAS)
 
     for k in range(n_semi):
         nivel = 0.10 + 0.90 * (k / max(n_semi - 1, 1))

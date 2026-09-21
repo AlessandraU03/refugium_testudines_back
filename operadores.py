@@ -111,8 +111,12 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
     # que hay que re-sembrar: cada nido se reubica en las casillas del nuevo
     # reparto conservando su profundidad, que es lo que el cambio de zona no
     # afecta.
-    if len(ORDENES_ZONAS) > 1 and random.random() < prob_mut:
-        nuevo = random.randrange(len(ORDENES_ZONAS))
+    # Cuantos repartos puede usar este corral. Si ya hay nidos enterrados el
+    # gestor trae uno solo, el que el corral ya tiene, y esta mutacion no hace
+    # nada: cambiar de franja obligaria a desenterrar lo ya sembrado.
+    n_ordenes = len(gestor) if hasattr(gestor, '__len__') else 1
+    if n_ordenes > 1 and random.random() < prob_mut:
+        nuevo = random.randrange(n_ordenes)
         if nuevo != ind.idx_orden:
             ind.idx_orden = nuevo
             g_nuevo = resolver_gestor(gestor, nuevo)

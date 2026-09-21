@@ -7,7 +7,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 
 from cromosoma import (cargar_base_conocimiento, GestorZonas, GestoresZonas,
-                       RegistroJornadas)
+                       RegistroJornadas, orden_establecido)
 from ag import ejecutar_ag
 from inicializacion import individuo_secuencial
 from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
@@ -292,8 +292,6 @@ def ejecutar():
     # sombra cubriendo parte del corral, ese reparto decide a que especie le
     # toca el fresco. Medido en septiembre, prieta pasa de 0.11 a 0.97 de
     # sombra segun el reparto.
-    gestor = GestoresZonas(corral, n_g, n_p, n_l, BASE)
-
     # Las tres especies conviven en el corral, cada una en su zona y con sus
     # propios parametros: profundidad y separacion de la NOM-162, dias de
     # incubacion, ventana del PTS y pivote de determinacion sexual.
@@ -308,6 +306,15 @@ def ejecutar():
 
     nidos_ocupados = [{'x': n['x'], 'y': n['y'], 'especie': n['especie']}
                       for n in nidos_activos]
+
+    # El reparto de franjas se decide UNA VEZ, con el corral vacio. Despues
+    # queda fijo: los nidos ya enterrados no se pueden cambiar de franja, y
+    # pedirle al personal que mueva una especie al extremo opuesto del corral
+    # no es una recomendacion sino una imposibilidad. Se deduce de donde estan
+    # los nidos previos y se bloquea.
+    orden_fijo = orden_establecido(nidos_ocupados)
+    gestor = GestoresZonas(corral, n_g, n_p, n_l, BASE,
+                           ordenes=[orden_fijo] if orden_fijo else None)
 
     # La fecha se parsea ANTES de correr el AG. De su mes dependen la
     # temperatura base de la arena y el tamano de la nidada, y por tanto la
@@ -674,6 +681,15 @@ def ejecutar():
         'n_laud':        n_l,
         'orden_zonas':   orden_elegido,
         'orden_base':    ['golfina', 'prieta', 'laud'],
+        # Si el corral ya tenia nidos, el reparto venia impuesto por ellos y el
+        # AG no pudo elegirlo. La interfaz debe decirlo, para que nadie crea
+        # que el algoritmo propone mover especies de franja entre jornadas.
+        'orden_fijo':    bool(orden_fijo),
+        'orden_motivo':  ('Heredado de los %d nidos ya enterrados: cambiar de '
+                          'franja obligaria a desenterrarlos.' % len(nidos_ocupados)
+                          if orden_fijo else
+                          'Corral vacio: el AG eligio el reparto, y queda fijo '
+                          'para el resto de la temporada.'),
         'sitio':         ({'latitud': SITIO['latitud'],
                            'longitud': SITIO['longitud'],
                            'orientacion': SITIO['orientacion'],
