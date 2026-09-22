@@ -4,6 +4,67 @@ from operadores  import (seleccion_torneo, cruza_por_especie,
 from inicializacion import inicializar_poblacion
 
 # ── Parámetros internos del AG ─────────────────────────────────────────────────
+#
+# MEDIDOS. Eran los ultimos coeficientes del sistema elegidos a mano; se
+# sometieron al mismo barrido que _PROB_REPARACION, las pasadas de reparacion y
+# el peso del sexo. Escenario: 200 nidos en 30 x 8 m -corral apretado, donde la
+# posicion decide algo- mas la jornada real de 100 nidos en 30 x 40 m. Tres
+# repeticiones por valor, variando uno a la vez.
+#
+# LO PRIMERO QUE HAY QUE SABER ES EL RUIDO. La configuracion base se midio tres
+# veces por separado, una en cada bloque del barrido, y dio 0.7958, 0.8008 y
+# 0.7936: un rango de 0.0072 sobre configuracion IDENTICA. Cualquier diferencia
+# menor que eso no es efecto del parametro.
+#
+#   poblacion (gen=100)      aptitud    desv
+#     20                     0.7939   0.0005
+#     30                     0.7957   0.0014
+#     50  <- actual          0.7958   0.0014
+#     80                     0.7982   0.0058
+#
+#   prob. de cruza (pob=50)  aptitud    desv
+#     0.60                   0.7948   0.0004
+#     0.85  <- actual        0.8008   0.0065
+#     1.00                   0.7956   0.0014
+#
+#   prob. de mutacion        aptitud    desv
+#     0.05                   0.7938   0.0035
+#     0.15  <- actual        0.7936   0.0116
+#     0.30                   0.7934   0.0076
+#     0.50                   0.7839   0.0062   <- PEOR, fuera del ruido
+#
+# CONVERGENCIA. Una corrida de 250 generaciones guarda la mejor aptitud de cada
+# una, asi que la curva dice donde deja de mejorar sin pagar corridas aparte:
+#
+#     gen  10   20   40   60   80  100  150  200  250
+#     %   91.8 93.0 95.6 97.5 98.4 99.2 99.8 99.9  100   del valor final
+#
+# El AG NO ha convergido en la generacion 100: va por el 99.2 % y alcanza el
+# 99.9 % en la 184. La mejora es MONOTONA, y una tendencia sostenida 150
+# generaciones no es ruido, porque el ruido no tiene direccion.
+#
+# Eso sugeria cambiar poblacion por generaciones -menos individuos, mas
+# busqueda- al mismo costo. SE PROBO Y NO FUNCIONA:
+#
+#   configuracion        apretado (200 nidos)     jornada real (100 nidos)
+#   pob=50 gen=100       0.7988 +- 0.0109 23.1s   0.8548 +- 0.0041 10.1s
+#   pob=30 gen=200       0.7974 +- 0.0008 25.4s   0.8583 +- 0.0047 11.6s
+#   pob=30 gen=250       0.8011 +- 0.0050 32.4s   0.8578 +- 0.0018 14.4s
+#   pob=20 gen=250       0.7994 +- 0.0064 21.3s   0.8558 +- 0.0003  9.5s
+#
+# Las cuatro son indistinguibles en los dos escenarios. La busqueda esta
+# SATURADA: en el rango probado ningun hiperparametro cambia el resultado, y el
+# unico limite que se distingue es que pm=0.50 perjudica.
+#
+# CONCLUSION: se dejan como estaban. No porque no se midieran, sino porque la
+# medicion dice que da igual, y entre valores equivalentes no hay razon para
+# cambiar. Que el resultado sea robusto a los hiperparametros es una FORTALEZA
+# del proyecto: significa que no es un artefacto de haberlos ajustado.
+#
+# ADVERTENCIA SOBRE LOS TIEMPOS: los del primer barrido salieron contaminados
+# por carga de la maquina -la misma configuracion tardo 42, 45 y 62 s en
+# bloques distintos-. Los de la tabla de arriba se midieron seguidos en un solo
+# proceso y si son comparables entre si.
 _TAM_POB    = 50
 _N_GEN      = 100
 _PROB_CRUZA = 0.85
