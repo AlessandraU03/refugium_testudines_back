@@ -1,3 +1,17 @@
+# Profundidad de siembra por especie. LA FUENTE ES LA NOM-162-SEMARNAT-2012.
+#
+# DECISION TOMADA, no pendiente. Existe una tabla de dimensiones de camara de
+# incubacion (la misma de csv/camara_incubacion.csv) que da otras
+# profundidades totales: golfina 40-50 cm -identico a la norma-, pero prieta
+# 70-85 y laud 75-100. La diferencia de 25 cm en prieta NO es cosmetica: a
+# 50 cm el modelo da 30.35 C en el PTS y 86.1 % de hembras, y a 77.5 cm da
+# 30.86 C y 93.3 %. Siete puntos porcentuales en una especie En Peligro, y
+# medio grado mas cerca del limite letal.
+#
+# La usuaria decidio CONSERVAR LA NOM-162, que es la norma vinculante en
+# Mexico y esta citada con seccion y tabla. La tabla de camaras se usa solo
+# para los DIAMETROS, que es lo que la norma no especifica y de donde sale el
+# piso de separacion.
 especie,profundidad_minima_cm,profundidad_optima_cm,profundidad_maxima_cm,sigma_cm,supuesto,fuente
 golfina,40,45,50,3.33,no,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1: profundidad total 40-50 cm; optima 45 cm segun Corzo-Dominguez y Romero-Berny 2025. sigma derivado = (max - opt) / 1.5"
 prieta,45,50,60,6.67,no,"NOM-162-SEMARNAT-2012 sec. 6.8.4 Tabla 1 para Chelonia: 45-60 cm, optima 50 cm. CORRIGE los 50/60/70 cm anteriores, que no correspondian a la norma. sigma derivado = (max - opt) / 1.5"

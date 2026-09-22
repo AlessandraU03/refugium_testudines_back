@@ -1,6 +1,6 @@
 campo,valor,notas
 largo_cm,3000,"Visita de campo al Santuario; medida del corral confirmado"
-ancho_cm,4000,"CORRAL DE TRABAJO, no medida de campo. Ampliado a 30 x 40 m a peticion de la usuaria para que la colocacion se vea con claridad en la interfaz. La medida de campo del Corral 1 del Santuario es 3000 x 800 cm y sigue registrada en corrales.csv; ese es el dato que va al protocolo. La malla y el riego de sitio.csv se reescalan a este tamano (solar.ajustar_a_corral), no se quedan cubriendo solo los primeros 800 cm de ancho"
+ancho_cm,4000,"CORRAL DE TRABAJO: 30 x 40 m, elegido por la usuaria como el corral con el que se PRESENTA el proyecto, porque a esa escala la colocacion se lee con claridad. No es una medida de campo y no pretende serlo: la del Corral 1 del Santuario es 3000 x 800 cm y sigue registrada en corrales.csv. La malla y el riego de sitio.csv se reescalan a este tamano (solar.ajustar_a_corral), porque el dato de campo es que el toldo cubre el corral COMPLETO y esa es la relacion que hay que conservar, no los centimetros"
 area_m2,1200,largo_cm x ancho_cm
 capacidad_maxima_nidos_simultaneos,1200,area_m2 x 1 nido/m2 (Best Practices IOTN 2018; NOM-162-SEMARNAT-2012)
 sector_celda_cm,200,lado de la celda de sector; debe coincidir con el marcado de estacas en campo
