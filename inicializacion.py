@@ -45,8 +45,9 @@ def individuo_secuencial(nidos_entrada, gestor, base, nidos_ocupados=None):
     la especie. No es una colocación mala: respeta la norma en los dos
     parámetros que la norma regula.
 
-    Existe para servir de línea base. El AG tiene que superarla en crías
-    esperadas, y si no lo hace hay que decirlo: comparar el algoritmo contra
+    Existe para servir de línea base, sembrada en las mismas franjas que la
+    colocación con la que se compara. El AG tiene que superarla, y si no lo
+    hace hay que decirlo: comparar el algoritmo contra
     una colocación al azar sería hacer trampa, porque nadie siembra al azar.
     """
     genes = []
@@ -56,10 +57,14 @@ def individuo_secuencial(nidos_entrada, gestor, base, nidos_ocupados=None):
 
     previos = list(nidos_ocupados or [])
 
-    # La linea base usa SIEMPRE el reparto historico de franjas
-    # (golfina, prieta, laud), porque es el que tenia el corral antes de que el
-    # orden fuera una decision del algoritmo. Compararla contra un reparto
-    # optimizado seria regalarle al AG parte de su propia ventaja.
+    # El reparto de franjas de la linea base es el del gestor que recibe.
+    # /api/ejecutar le pasa el del individuo GANADOR, asi que la referencia
+    # siembra por hileras dentro de las MISMAS franjas que eligio el AG: la
+    # comparacion aisla la colocacion de los nidos dentro de cada franja y no
+    # le cuenta al AG la ventaja de haber elegido el reparto.
+    #
+    # (Si recibe el contenedor con los seis repartos, toma el primero, que es
+    # el orden historico golfina-prieta-laud.)
     gestor = resolver_gestor(gestor, 0)
 
     for especie in sorted(por_esp):

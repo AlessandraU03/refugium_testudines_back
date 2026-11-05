@@ -636,7 +636,14 @@ def _previos_dicts(nidos_previos):
 
 
 def poda_elitismo(poblacion, descendencia, tam_pob, n_elite=2):
-    """Selección μ+λ: conserva los n_elite mejores y completa aleatoriamente."""
+    """Elitismo con reemplazo aleatorio.
+
+    Junta padres e hijos, conserva los n_elite mejores y completa la población
+    eligiendo AL AZAR entre el resto, sin mirar su aptitud. No es una selección
+    μ+λ: esa conservaría los tam_pob mejores de la unión. La presión de
+    selección la pone el torneo; aquí sólo se garantiza que los mejores no se
+    pierdan.
+    """
     todos = sorted(poblacion + descendencia,
                    key=lambda i: i.fitness, reverse=True)
     elite = todos[:n_elite]

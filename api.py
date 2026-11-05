@@ -19,7 +19,75 @@ from evaluacion import (calcular_pts_window, calcular_semana_incubacion,
 
 # Servidor API Flask - Refugium Testudinis
 app  = Flask(__name__)
-CORS(app)
+
+# Origenes que pueden llamar a la API desde un navegador. Antes era CORS
+# abierto a cualquier sitio, y como /api/nueva-temporada borra el registro,
+# cualquier pagina web podia vaciar la temporada con un fetch. Se permiten el
+# desarrollo local y los dominios de hospedaje habituales del frontend; si el
+# frontend vive en otro dominio, se agrega en la variable CORS_ORIGINS
+# (separados por comas) sin tocar el codigo.
+_ORIGENES_CORS = [
+    r'^https?://localhost(:\d+)?$',
+    r'^https?://127\.0\.0\.1(:\d+)?$',
+    r'^https://[a-z0-9-]+\.onrender\.com$',
+    r'^https://[a-z0-9-]+\.vercel\.app$',
+    r'^https://[a-z0-9-]+\.netlify\.app$',
+    r'^https://alessandrau03\.github\.io$',
+] + [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
+CORS(app, origins=_ORIGENES_CORS)
+
+
+class EntradaInvalida(ValueError):
+    """Dato de entrada que no se puede usar. Se responde 400 con el mensaje."""
+
+
+def _entero(valor, nombre, minimo=0, maximo=None):
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        raise EntradaInvalida('%s debe ser un numero entero.' % nombre)
+    if n < minimo or (maximo is not None and n > maximo):
+        rango = ('entre %d y %d' % (minimo, maximo) if maximo is not None
+                 else 'mayor o igual a %d' % minimo)
+        raise EntradaInvalida('%s debe ser %s.' % (nombre, rango))
+    return n
+
+
+def _decimal(valor, nombre, minimo=None, maximo=None):
+    try:
+        x = float(valor)
+    except (TypeError, ValueError):
+        raise EntradaInvalida('%s debe ser un numero.' % nombre)
+    if (minimo is not None and x < minimo) or (maximo is not None and x > maximo):
+        raise EntradaInvalida('%s esta fuera de rango (%s a %s).'
+                              % (nombre, minimo, maximo))
+    return x
+
+
+def _fecha(valor):
+    if not valor:
+        return datetime.today()
+    try:
+        return datetime.strptime(str(valor), '%Y-%m-%d')
+    except ValueError:
+        raise EntradaInvalida('La fecha debe tener el formato AAAA-MM-DD.')
+
+
+def _corral_de(data):
+    """Corral de una peticion: el de corral_incubacion.csv con las medidas que
+    pida la jornada. Lo usan /api/ejecutar y /api/guardar-jornada, para que la
+    jornada se guarde con el mismo corral con el que se calculo."""
+    corral = dict(CORRAL)
+    if data.get('largo_m'):
+        corral['largo_cm'] = max(100.0, _decimal(data['largo_m'], 'El largo del corral', 1, 500) * 100.0)
+    if data.get('ancho_m'):
+        corral['ancho_cm'] = max(100.0, _decimal(data['ancho_m'], 'El ancho del corral', 1, 500) * 100.0)
+    return corral
+
+
+@app.errorhandler(EntradaInvalida)
+def _entrada_invalida(e):
+    return jsonify({'error': str(e)}), 400
 
 CSV_DIR       = os.path.join(os.path.dirname(__file__), 'csv')
 JORNADAS_FILE = os.path.join(os.path.dirname(__file__), 'jornadas.json')
@@ -328,12 +396,15 @@ def _serializar_cupo(cupo, gestores=None):
 
 @app.route('/api/ejecutar', methods=['POST'])
 def ejecutar():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise EntradaInvalida('La peticion debe enviar un objeto JSON.')
 
-    n_g   = max(0, int(data.get('n_golfina', 0)))
-    n_p   = max(0, int(data.get('n_prieta',  0)))
-    n_l   = max(0, int(data.get('n_laud',    0)))
-    fecha = data.get('fecha', datetime.today().strftime('%Y-%m-%d'))
+    n_g   = _entero(data.get('n_golfina', 0), 'El numero de nidos de golfina', 0, 5000)
+    n_p   = _entero(data.get('n_prieta',  0), 'El numero de nidos de prieta', 0, 5000)
+    n_l   = _entero(data.get('n_laud',    0), 'El numero de nidos de laud', 0, 5000)
+    f_siembra = _fecha(data.get('fecha'))
+    fecha = f_siembra.strftime('%Y-%m-%d')
 
     if n_g + n_p + n_l == 0:
         return jsonify({'error': 'Ingresa al menos 1 nido de alguna especie'}), 400
@@ -342,14 +413,7 @@ def ejecutar():
     # puede pedir otras: asi se puede ensayar que pasaria con un corral mas
     # largo o mas ancho sin tocar ningun archivo. Es parte de que el programa
     # sea general y no el de un solo sitio.
-    corral = dict(CORRAL)
-    try:
-        if data.get('largo_m'):
-            corral['largo_cm'] = max(100.0, float(data['largo_m']) * 100.0)
-        if data.get('ancho_m'):
-            corral['ancho_cm'] = max(100.0, float(data['ancho_m']) * 100.0)
-    except (TypeError, ValueError):
-        pass
+    corral = _corral_de(data)
     area_m2 = float(corral['largo_cm']) * float(corral['ancho_cm']) / 10000.0
     corral['area_m2'] = round(area_m2, 1)
     corral['capacidad_maxima_nidos_simultaneos'] = int(area_m2)  # 1 nido/m2
@@ -416,9 +480,13 @@ def ejecutar():
     # Las tres especies conviven en el corral, cada una en su zona y con sus
     # propios parametros: profundidad y separacion de la NOM-162, dias de
     # incubacion, ventana del PTS y pivote de determinacion sexual.
-    nidos_entrada = ([(i, 'golfina') for i in range(n_g)] +
-                     [(n_g + i, 'prieta') for i in range(n_p)] +
-                     [(n_g + n_p + i, 'laud') for i in range(n_l)])
+    # Los identificadores siguen la numeracion de la temporada. Antes cada
+    # jornada empezaba en 0, y desde la segunda se repetian los de los nidos ya
+    # enterrados: en campo no se podia saber a que nido se referia un numero.
+    base_id = REGISTRO.siguiente_id()
+    nidos_entrada = ([(base_id + i, 'golfina') for i in range(n_g)] +
+                     [(base_id + n_g + i, 'prieta') for i in range(n_p)] +
+                     [(base_id + n_g + n_p + i, 'laud') for i in range(n_l)])
 
     # El reparto de franjas se decide UNA VEZ, con el corral vacio. Despues
     # queda fijo: los nidos ya enterrados no se pueden cambiar de franja, y
@@ -428,14 +496,6 @@ def ejecutar():
     orden_fijo = orden_establecido(nidos_ocupados)
     gestor = GestoresZonas(corral, n_g, n_p, n_l, BASE,
                            ordenes=[orden_fijo] if orden_fijo else None)
-
-    # La fecha se parsea ANTES de correr el AG. De su mes dependen la
-    # temperatura base de la arena y el tamano de la nidada, y por tanto la
-    # proporcion sexual que el AG intenta alcanzar.
-    try:
-        f_siembra = datetime.strptime(fecha, '%Y-%m-%d')
-    except ValueError:
-        f_siembra = datetime.today()
 
     gestores = gestor
     mejor, top3, historial = ejecutar_ag(
@@ -878,27 +938,47 @@ def ejecutar():
 
 @app.route('/api/guardar-jornada', methods=['POST'])
 def guardar_jornada():
-    data  = request.get_json()
-    fecha = data['fecha']
-    n_g   = int(data.get('n_golfina', 0))
-    n_p   = int(data.get('n_prieta', 0))
-    n_l   = int(data.get('n_laud', 0))
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('mejor'), dict):
+        raise EntradaInvalida('Falta la colocacion a guardar.')
+    fecha = _fecha(data.get('fecha')).strftime('%Y-%m-%d')
 
     from cromosoma import Gen, Individuo
-    genes = [Gen(g['id'], g['especie'], g['x'], g['y'], g['prof'])
-             for g in data['mejor']['genes']]
+    try:
+        genes = [Gen(g['id'], g['especie'], g['x'], g['y'], g['prof'])
+                 for g in data['mejor']['genes']]
+    except (KeyError, TypeError):
+        raise EntradaInvalida('La colocacion a guardar esta incompleta.')
+    if any(g.especie not in BASE for g in genes):
+        raise EntradaInvalida('La colocacion trae una especie desconocida.')
+
+    # Los conteos se toman de los nidos que de verdad se colocaron, no de lo
+    # que mande la interfaz. Antes la interfaz mandaba los nidos PEDIDOS de
+    # golfina y 0 de prieta y laud, asi que el registro y las franjas guardadas
+    # describian otro corral.
+    n_g = sum(1 for g in genes if g.especie == 'golfina')
+    n_p = sum(1 for g in genes if g.especie == 'prieta')
+    n_l = sum(1 for g in genes if g.especie == 'laud')
     ind = Individuo(genes)
-    ind.fitness = data['mejor']['fitness']
-    ind.v1 = data['mejor']['v1']
-    ind.v2 = data['mejor']['v2']
-    ind.v3 = data['mejor']['v3']
+    m = data['mejor']
+    ind.fitness = _decimal(m.get('fitness', 0), 'La aptitud')
+    ind.v1 = _decimal(m.get('v1', 0), 'V1')
+    ind.v2 = _decimal(m.get('v2', 0), 'V2')
+    ind.v3 = _decimal(m.get('v3', 0), 'V3')
 
     params = {'tam_pob': 50, 'n_gen': 100, 'prob_cruza': 0.85, 'prob_mut': 0.15}
     # El reparto de franjas que eligio el AG, no el historico. Si se guardara
     # siempre el historico, las jornadas futuras dibujarian los nidos previos
     # en zonas que nunca fueron las suyas.
     orden_guardar = data.get('orden_zonas') or None
-    gestor_guardar = GestorZonas(CORRAL, n_g, n_p, n_l, BASE,
+    if orden_guardar is not None and (
+            not isinstance(orden_guardar, list)
+            or sorted(orden_guardar) != sorted(['golfina', 'prieta', 'laud'])):
+        raise EntradaInvalida('El reparto de franjas no es valido.')
+    # El corral con el que se calculo la jornada, no el del CSV: si se ensayo
+    # con otras medidas, las franjas guardadas tienen que ser las de ese corral.
+    corral_guardar = _corral_de(data)
+    gestor_guardar = GestorZonas(corral_guardar, n_g, n_p, n_l, BASE,
                                  orden=orden_guardar)
     jornada = REGISTRO.guardar_jornada(fecha, n_g, n_p, n_l, ind, params, gestor=gestor_guardar)
     return jsonify({'ok': True, 'jornada': jornada})
@@ -950,6 +1030,12 @@ def resumen_temporada():
 
 @app.route('/api/nueva-temporada', methods=['POST'])
 def nueva_temporada():
+    # Borra todo el registro, asi que se exige que la peticion lo diga
+    # explicitamente. Un POST vacio -un clic o un enlace equivocado- ya no
+    # basta para vaciar la temporada.
+    data = request.get_json(silent=True) or {}
+    if data.get('confirmar') is not True:
+        raise EntradaInvalida('Para borrar la temporada hay que confirmarlo.')
     REGISTRO.limpiar_temporada()
     return jsonify({'ok': True})
 
@@ -961,12 +1047,13 @@ def handle_exception(e):
     from werkzeug.exceptions import HTTPException
     if isinstance(e, HTTPException):
         return e
-    tb = traceback.format_exc()
+    # El detalle va al registro del servidor, no a la respuesta: el traceback
+    # expone rutas y codigo interno a quien llame, y a quien usa la interfaz no
+    # le dice nada que pueda corregir.
     print("=== GLOBAL EXCEPTION CAUGHT ===")
-    print(tb)
+    print(traceback.format_exc())
     return jsonify({
-        "error": str(e),
-        "traceback": tb
+        "error": "Ocurrio un error interno al procesar la solicitud."
     }), 500
 
 
@@ -988,10 +1075,13 @@ def recomendacion():
     """
     import termico
 
-    mes     = int(request.args.get('mes', datetime.today().month))
-    largo_m = float(request.args.get('largo_m', float(CORRAL['largo_cm']) / 100.0))
-    ancho_m = float(request.args.get('ancho_m', float(CORRAL['ancho_cm']) / 100.0))
-    prof_cm = float(request.args.get('prof_cm', BASE['golfina']['prof_opt']))
+    mes     = _entero(request.args.get('mes', datetime.today().month), 'El mes', 1, 12)
+    largo_m = _decimal(request.args.get('largo_m', float(CORRAL['largo_cm']) / 100.0),
+                       'El largo del corral', 1, 500)
+    ancho_m = _decimal(request.args.get('ancho_m', float(CORRAL['ancho_cm']) / 100.0),
+                       'El ancho del corral', 1, 500)
+    prof_cm = _decimal(request.args.get('prof_cm', BASE['golfina']['prof_opt']),
+                       'La profundidad', 10, 150)
 
     area_m2 = largo_m * ancho_m
     base_t  = termico.temperatura_base(mes)
@@ -1124,4 +1214,6 @@ def recomendacion():
 # Con gunicorn o con test_client no se nota, porque ahi el modulo se
 # importa y app.run() no se ejecuta.
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # El depurador de Flask permite ejecutar codigo desde el navegador: solo se
+    # activa en local y a proposito (FLASK_DEBUG=1), nunca por omision.
+    app.run(debug=os.environ.get('FLASK_DEBUG') == '1', port=5000)

@@ -967,6 +967,18 @@ class RegistroJornadas:
         with open(self.ruta, 'w', encoding='utf-8') as f:
             json.dump(self.datos, f, ensure_ascii=False, indent=2)
 
+    def siguiente_id(self):
+        """Primer identificador libre de la temporada.
+
+        Los nidos se numeran a lo largo de toda la temporada, no por jornada:
+        si cada jornada empezara en 0, los numeros se repetirian con los de los
+        nidos ya enterrados.
+        """
+        ids = [n.get('id') for j in self.datos.get('jornadas', [])
+               for n in j.get('nidos', [])]
+        ids = [int(i) for i in ids if isinstance(i, (int, float))]
+        return (max(ids) + 1) if ids else 0
+
     def guardar_jornada(self, fecha, n_g, n_p, n_l, mejor, params, gestor=None):
         nidos = [{
             'id':      g.id_nido,
