@@ -596,6 +596,17 @@ def _sitio(corral=None):
     return _SITIO_CORRAL[clave]
 
 
+class _VecinoPrevio:
+    """Nido ya enterrado, visto como vecino por el modelo termico."""
+    __slots__ = ('x', 'y', 'especie', 'num_huevas')
+
+    def __init__(self, p):
+        self.x = float(p['x'])
+        self.y = float(p['y'])
+        self.especie = p.get('especie', 'golfina')
+        self.num_huevas = p.get('num_huevas', 0)
+
+
 def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None,
                                 corral=None):
     """Corre el modelo térmico sobre esta colocación y devuelve todo de una vez.
@@ -622,12 +633,7 @@ def _evaluar_colocacion_termica(individuo, base, nidos_previos=None, mes=None,
                 'resumen': termico.predecir_conjunto([]), 'por_nido': []}
 
     previos = _previos_lista(nidos_previos)
-    vecinos = genes + [
-        type('N', (), {'x': float(p['x']), 'y': float(p['y']),
-                       'especie': p.get('especie', 'golfina'),
-                       'num_huevas': p.get('num_huevas', 0)})()
-        for p in previos
-    ]
+    vecinos = genes + [_VecinoPrevio(p) for p in previos]
 
     tasas = {e: base[e].get('tasa_eclosion', 0.75) for e in base}
     if mes is None and getattr(genes[0], 'fecha_siembra', None):

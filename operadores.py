@@ -79,7 +79,6 @@ def mutacion_combinada(individuo, prob_mut, base, gestor, nidos_previos=None):
     # Prebuild numpy arrays for the genes of this individual to avoid python loops
     all_xs = np.array([g.x for g in genes])
     all_ys = np.array([g.y for g in genes])
-    all_esps = np.array([g.especie for g in genes])
 
     # Preconstruir coordenadas de previos por especie
     previos_esp = {}

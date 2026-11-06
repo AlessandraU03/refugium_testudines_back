@@ -238,11 +238,10 @@ class Gen:
                 lim['ymin'] <= self.y <= lim['ymax'])
 
     def copia(self):
-        gen_copia = Gen(self.id_nido, self.especie, self.x, self.y, self.prof,
-                       num_huevas=self.num_huevas, orden_incubacion=self.orden_incubacion)
-        gen_copia.fecha_siembra = self.fecha_siembra
-        gen_copia.semana_incubacion = self.semana_incubacion
-        gen_copia.estado = self.estado
+        # Sin pasar por __init__: una corrida hace un millon de copias y los
+        # valores ya vienen redondeados.
+        gen_copia = Gen.__new__(Gen)
+        gen_copia.__dict__.update(self.__dict__)
         return gen_copia
 
     def __repr__(self):

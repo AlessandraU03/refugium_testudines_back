@@ -284,15 +284,17 @@ def fecundidad_mensual(carpeta_csv=None):
     Memorizado: abria y parseaba el CSV en CADA llamada, y una corrida del AG
     la llama unas 6 400 veces. El archivo no cambia mientras corre el servidor.
     """
-    if carpeta_csv in _CACHE_FECUNDIDAD:
-        return _CACHE_FECUNDIDAD[carpeta_csv]
-
     import csv as _csv
     import os as _os
+    # La clave se resuelve ANTES de consultar la memoria. Antes se consultaba
+    # con None y se guardaba con la ruta, asi que nunca acertaba y el CSV se
+    # volvia a leer en cada llamada.
     if carpeta_csv is None:
         carpeta_csv = _os.path.join(_os.path.dirname(__file__), 'csv')
-    ruta = _os.path.join(carpeta_csv, 'fecundidad_mensual.csv')
     clave = carpeta_csv
+    if clave in _CACHE_FECUNDIDAD:
+        return _CACHE_FECUNDIDAD[clave]
+    ruta = _os.path.join(carpeta_csv, 'fecundidad_mensual.csv')
     if not _os.path.exists(ruta):
         _CACHE_FECUNDIDAD[clave] = {}
         return {}
@@ -815,7 +817,9 @@ def evaluar_colocacion(nidos, tasa_base_por_especie, mes=None,
     s_gir = np.array([float((pe.get(e) or {}).get('s') or S_GIRONDOT)
                       for e in especies])
 
-    dens = np.array(densidades_locales(list(zip(x, y))))
+    # tolist(): el bucle de densidades recorre floats de Python, que son mucho
+    # mas rapidos que los escalares de numpy y dan exactamente el mismo valor.
+    dens = np.array(densidades_locales(list(zip(x.tolist(), y.tolist()))))
 
     # --- sombra y riego, nido por nido -----------------------------------
     if sitio is not None and dia_del_anio is not None:
